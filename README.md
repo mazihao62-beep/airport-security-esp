@@ -1,42 +1,55 @@
 # 🛡️ 机场安全透视脚本 (Airport Security ESP)
 
-> 适用于 Roblox 机场安全类游戏
+> 基于 **WindUI** 库构建的 Roblox 机场安全类游戏透视脚本
+
+[![WindUI](https://img.shields.io/badge/UI-WindUI-30ff6a)](https://footagesus.github.io/WindUI-Docs/docs)
 
 ## ✨ 功能特点
 
 | 功能 | 说明 |
 |------|------|
-| 👁 **透视ESP** | 穿墙看到所有角色位置 |
-| ✅ **好人绿色标记** | Agent = 警察/安保人员，显示绿色 |
-| ❌ **坏人红色标记** | NPC Template = 恐怖分子，显示红色 |
-| 📏 **距离显示** | 显示距离和血量信息 |
-| 🎨 **彩虹边框UI** | 悬浮窗可拖拽 |
+| 🎨 **WindUI 现代界面** | 精美 UI，支持10+主题切换，Mac风格按钮 |
+| 👁 **ESP透视** | 穿墙方框，AlwaysOnTop |
+| 🟢 **好人绿色标记** | Agent/Police/Guard → "👮 Agent" |
+| 🔴 **坏人红色标记** | NPC/Terrorist/Suspect → "💀 Threat" |
+| 📏 **距离显示** | 实时显示距离（米） |
+| ❤️ **血量显示** | HP: 120/120 格式 |
+| 📊 **实时统计** | 坏人/好人计数面板 |
+| 📱 **悬浮按钮** | 手机适配 |
 
-## 🎮 热键控制
+## 🎮 快捷键
 
 | 按键 | 功能 |
 |------|------|
+| **RightShift** | 开关WindUI菜单 |
 | **F4** | 开关ESP透视 |
-| **F5** | 切换仅显示坏人模式 |
 
-## 🔍 识别机制
-
-脚本通过以下方式区分好人与坏人：
-
-1. **路径检测** — 检查父级是否包含 `AgentTemplate` 或 `NPCTemplate`
-2. **名称识别** — 根据名字前缀判断（Agent/Police/Guard = 好人, NPC/Terrorist/Suspect = 坏人）
-3. **模块检测** — 检查Descendant中是否存在模板标识
-
-## 🚀 使用方法
+## 📦 安装
 
 1. 打开 Roblox 游戏
 2. 注入你的执行器
 3. 复制 `airport_esp.lua` 完整代码并执行
 
+## 🔍 识别机制（三重判断）
+
+1. **父级路径** — 检查是否在 `AgentTemplate` / `NPCTemplate` 下
+2. **名称匹配** — 根据名字前缀判断
+3. **Descendant扫描** — 查找模块脚本中的模板标识
+
+## ⚙️ WindUI 配置
+
+窗口内置10+主题，可在设置中切换：
+- Dark, Light, Rose, Plant, Indigo, Sky, Violet, Amber 等
+
 ## 📁 文件结构
 
 ```
 airport-security-esp/
-├── airport_esp.lua   # 主脚本
+├── airport_esp.lua   # 主脚本（WindUI版）
 └── README.md         # 说明文档
 ```
+
+## 🔗 相关链接
+
+- [WindUI 文档](https://footagesus.github.io/WindUI-Docs/docs)
+- [WindUI GitHub](https://github.com/Footagesus/WindUI)
