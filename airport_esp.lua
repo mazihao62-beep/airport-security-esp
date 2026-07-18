@@ -1,11 +1,16 @@
 --[[
-    机场安全透视脚本 v12.3
+    机场安全透视脚本 v12.4
     作者: b站英吉利超入_
     
-    v12.3 三大究极Bug修复:
-    B1: 部分主题粒子颜色不合适 → 重新设计ThemeColors配色方案，更柔和/更适配
-    B2: 粒子穿透UI → 动态追踪窗口Frame位置，粒子容器ClipsDescendants=true(只在窗口区域内显示)
-    B3: 关闭脚本后粒子残留 → 启动时立即清理 + 断连自动清理 + _G强制清理函数
+    v12.4 全面修复8个UI Bug:
+    A: findWindowMainFrame() 双保险搜索窗口Frame
+    B: win.OnClose/OnOpen 改用轮询检测窗口可见性
+    C: 初始粒子颜色与Dark主题一致
+    D: 透明度改用 WindUI.TransparencyValue
+    E: PC端也创建半透明悬浮按钮（默认隐藏）
+    F: 清理旧WindUI实例
+    G: 移除无用变量 scriptStartTime
+    I: 扫描循环可停止
 ]]
 
 -- ========== 服务 ==========
@@ -21,7 +26,6 @@ if not IsMobile then pcall(function() IsMobile = UserInputService.TouchEnabled a
 
 -- ========== B3: 启动时立即清理所有残留（不等待）==========
 local TAG_NAME = "AirportESP"
-local scriptStartTime = tick()
 
 local function immediateCleanup()
     local count = 0
@@ -36,6 +40,16 @@ local function immediateCleanup()
             if gui:IsA("ScreenGui") then
                 local n = gui.Name
                 if n:find("AirportESP") or n:find("Template_") or n:find("Particle") then
+                    pcall(function() gui:Destroy() end); count = count + 1
+                end
+            end
+        end
+        -- Bug F: 清理旧WindUI实例（保留最新的）
+        local winduiCount = 0
+        for _, gui in ipairs(CoreGui:GetChildren()) do
+            if gui:IsA("ScreenGui") and gui.Name:find("WindUI") then
+                winduiCount = winduiCount + 1
+                if winduiCount > 1 then
                     pcall(function() gui:Destroy() end); count = count + 1
                 end
             end
@@ -72,7 +86,7 @@ end
 local Settings = {
     Enabled = false, BadOnly = false, ShowDistance = false, ShowHealth = false,
     MaxRange = 500, Particles = true, CurrentTheme = "Dark",
-    ParticleColor = Color3.fromRGB(100, 180, 255),
+    ParticleColor = Color3.fromRGB(80, 170, 255), -- Bug C: 初始即匹配Dark主题
 }
 
 -- ========== B1: 重新设计主题色方案 ==========
@@ -106,6 +120,7 @@ local Stats={Good=0,Bad=0,Total=0};local Controls={};local Keybinds={}
 local PopupConfirmed=false;local TabElements={};local ConfigName="default"
 local DebugLog={};local ParticleRunning=false;local Particles={}
 local WindowMainFrame=nil;local ParticleHeartbeat=nil
+local WindowVisiblePoll=false -- Bug B: 窗口可见性轮询
 
 local function mobileToggleWindow()
     if not WindowRef then return end;pcall(function()VirtualInputManager:SendKeyEvent(true,Enum.KeyCode.RightShift,false,game);task.wait(0.05);VirtualInputManager:SendKeyEvent(false,Enum.KeyCode.RightShift,false,game)end)
@@ -117,8 +132,10 @@ local function debugPrint(msg) table.insert(DebugLog,msg);if #DebugLog>100 then 
 -- 新方案: 粒子放在一个Frame容器中,该容器动态追踪窗口位置,ClipsDescendants=true
 -- 粒子只在窗口区域内可见,不会穿透到UI控件上方
 
+-- Bug A: 双保险搜索窗口主Frame
 local function findWindowMainFrame()
     WindowMainFrame = nil
+    -- 方法1: 遍历CoreGui找Frame+UICorner+Size>700
     pcall(function()
         for _, gui in ipairs(CoreGui:GetChildren()) do
             if gui:IsA("ScreenGui") then
@@ -133,6 +150,22 @@ local function findWindowMainFrame()
             end
         end
     end)
+    -- 方法2: 如果没找到，尝试找WindUI窗口内最大的Frame
+    if not WindowMainFrame then
+        pcall(function()
+            for _, gui in ipairs(CoreGui:GetChildren()) do
+                if gui:IsA("ScreenGui") and gui.Name:find("WindUI") then
+                    local bestSize = 0; local bestFrame = nil
+                    for _, f in ipairs(gui:GetChildren()) do
+                        if f:IsA("Frame") and f.AbsoluteSize.X > bestSize then
+                            bestSize = f.AbsoluteSize.X; bestFrame = f
+                        end
+                    end
+                    if bestFrame then WindowMainFrame = bestFrame; return end
+                end
+            end
+        end)
+    end
     return WindowMainFrame
 end
 
@@ -189,7 +222,6 @@ local function createParticles()
                 ParticleContainer.Visible = WindowMainFrame.Visible
             else
                 ParticleContainer.Visible = false
-                -- 窗口可能被重新创建，定期查找
                 findWindowMainFrame()
             end
         end)
@@ -204,12 +236,12 @@ local function createParticles()
             dot.BackgroundColor3 = particleColor
             dot.BackgroundTransparency = 0.4 + math.random() * 0.4
             dot.BorderSizePixel = 0
-            dot.ZIndex = 0  -- B2: 低ZIndex，确保在窗口内容后面
+            dot.ZIndex = 0
             dot.Parent = ParticleContainer
             tagTrack(dot)
             local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 10); c.Parent = dot
             local angle = math.random() * 6.28
-            local speed = 0.1 + math.random() * 0.3  -- 像素/帧速度
+            local speed = 0.1 + math.random() * 0.3
             table.insert(Particles, {
                 Frame = dot, Vx = math.cos(angle) * speed, Vy = math.sin(angle) * speed,
                 Phase = math.random() * 6.28, SizeBase = sz, ContainerW = w, ContainerH = h,
@@ -267,6 +299,35 @@ local function destroyParticles()
     Particles = {}
 end
 
+-- Bug B: 窗口可见性轮询（替代不可靠的win.OnClose/OnOpen）
+local function startWindowVisibilityPoll()
+    WindowVisiblePoll = true
+    task.spawn(function()
+        local wasVisible = nil
+        while WindowVisiblePoll do
+            task.wait(0.5)
+            pcall(function()
+                if not WindowRef then WindowVisiblePoll = false; return end
+                local isVisible = false
+                -- 尝试多种方式判断窗口可见性
+                local ok1, v1 = pcall(function() return WindowRef.Visible end)
+                if ok1 then isVisible = v1 end
+                if wasVisible == nil then wasVisible = isVisible end
+                if wasVisible ~= isVisible then
+                    if isVisible then
+                        -- 窗口打开了
+                        if Settings.Particles then createParticles() end
+                    else
+                        -- 窗口关闭了
+                        destroyParticles()
+                    end
+                    wasVisible = isVisible
+                end
+            end)
+        end
+    end)
+end
+
 -- ========== NPC 分类器 ==========
 local function getAllAttributes(obj) local attrs={};if not obj then return attrs end;pcall(function()for _,a in ipairs(obj:GetAttributes())do attrs[a]=obj:GetAttribute(a)end end);return attrs end
 
@@ -310,6 +371,7 @@ local function updateLabels()local myChar=Players.LocalPlayer and Players.LocalP
 
 local function updateAllESP()for ch,o in pairs(ESPObjects)do local nt=TrackedNPCs[ch];local s=Settings.Enabled and(not Settings.BadOnly or nt=="Bad");if o.Highlight then o.Highlight.Enabled=s end;if o.Billboard then o.Billboard.Enabled=s end end end
 
+-- Bug I: 扫描循环可停止
 local function scanNPCs()if IsScanning then return end;IsScanning=true;debugPrint("=====开始扫描=====");pcall(function()for _,o in ipairs(Workspace:GetDescendants())do local h,c=nil,nil;if o:IsA("Humanoid")then h=o;c=o.Parent end;if c and h and not TrackedNPCs[c]and not isRealPlayer(c)then if c:FindFirstChild("Head")or c:FindFirstChild("HumanoidRootPart")or c:FindFirstChild("Torso")then debugPrint(string.format("发现NPC(Humanoid):%s",c.Name));local nt=classifyNPC(c,h);if nt then createESP(c,nt)end end end;task.wait()end end);debugPrint(string.format("=====扫描结束:好人%d坏人%d=====",Stats.Good,Stats.Bad));IsScanning=false end
 
 local function beautifyUI()pcall(function()for _,s in ipairs(CoreGui:GetDescendants())do if s:IsA("ScrollingFrame")then s.ScrollBarThickness=14;s.ScrollBarImageColor3=Color3.fromRGB(220,220,220);s.ScrollBarImageTransparency=0.1 end end end)end
@@ -321,11 +383,15 @@ local WindUI=nil;local s,r=pcall(function()return loadstring(game:HttpGet("https
 
 if s and r then
     WindUI=r;pcall(function()WindUI:SetTheme("Dark")end)
-    WindUI:Popup({Title="机场安全透视 v12.3",Icon="solar:info-square-bold",Content="👁 透视高亮 - Highlight穿墙显示所有NPC\n🔍 智能识别 - 多维度区分好人(绿)与坏人(红)\n🏷 头顶标签 - 显示类型/距离/血量\n🔧 自定义快捷键 - 自由绑定按键\n💾 配置保存 - 自动保存/读取设置\n🎨 主题系统 - 粒子颜色动态适配\n✨ 粒子背景 - 窗口内Clips裁剪+追踪窗口位置\n🧹 即时清理 - 启动时+关闭时自动清除所有残留\n\n⚠️ 加载后所有功能默认关闭，需手动开启",
+    -- Bug C: 加载后立即计算Dark主题色
+    Settings.ParticleColor = getThemePrimaryColor("Dark")
+    
+    WindUI:Popup({Title="机场安全透视 v12.4",Icon="solar:info-square-bold",Content="👁 透视高亮 - Highlight穿墙显示所有NPC\n🔍 智能识别 - 多维度区分好人(绿)与坏人(红)\n🏷 头顶标签 - 显示类型/距离/血量\n🔧 自定义快捷键 - 自由绑定按键\n💾 配置保存 - 自动保存/读取设置\n🎨 主题系统 - 粒子颜色动态适配\n✨ 粒子背景 - 窗口内Clips裁剪+追踪窗口位置\n🧹 即时清理 - 启动时+关闭时自动清除所有残留\n\n⚠️ 加载后所有功能默认关闭，需手动开启",
         Buttons={{Title="取消",Callback=function()end,Variant="Tertiary"},{Title="确认加载",Icon="solar:arrow-right-bold",Callback=function()PopupConfirmed=true;pcall(function()WindUI:Notify({Title="✅ 已加载",Content="⌨️ 按 RightShift 打开菜单",Duration=4,Icon="solar:bell-bold"})end);task.spawn(function()createWindow();task.wait(1);scanNPCs()end)end,Variant="Primary"}}})
     task.spawn(function()
         while not PopupConfirmed do task.wait(0.5)end;task.wait(0.5);beautifyUI()
-        task.spawn(function()while true do pcall(function()cleanESP();scanNPCs()end)task.wait(5)end end)
+        -- Bug I: 扫描循环只会运行当 Settings.Enabled = true 时
+        task.spawn(function()while true do pcall(function()cleanESP();if Settings.Enabled then scanNPCs()end end)task.wait(5)end end)
         task.spawn(function()
             while true do pcall(function()if TabElements.GoodP then TabElements.GoodP:SetTitle("🟢 好人: "..Stats.Good);TabElements.BadP:SetTitle("🔴 坏人: "..Stats.Bad);TabElements.TotalP:SetTitle("📊 总计: "..Stats.Total)end;if TabElements.ScanI then TabElements.ScanI:Set(IsScanning and"📡 扫描中..."or"✅ 就绪")end;if TabElements.DebugI then local ls={};for i=math.max(1,#DebugLog-4),#DebugLog do table.insert(ls,DebugLog[i])end;TabElements.DebugI:Set(table.concat(ls,"\n"))end;updateLabels()end)task.wait(0.5)end end)
         UserInputService.InputBegan:Connect(function(input,gp)if gp then return end;if input.UserInputType~=Enum.UserInputType.Keyboard then return end;local kn=input.KeyCode.Name;if Keybinds.ESP and Keybinds.ESP~=""and kn==Keybinds.ESP then Settings.Enabled=not Settings.Enabled;pcall(function()if Controls.ESPToggle then Controls.ESPToggle:Set(Settings.Enabled)end end);updateAllESP();if Settings.Enabled then task.spawn(scanNPCs)end end;if Keybinds.BadOnly and Keybinds.BadOnly~=""and kn==Keybinds.BadOnly then Settings.BadOnly=not Settings.BadOnly;pcall(function()if Controls.BadOnlyToggle then Controls.BadOnlyToggle:Set(Settings.BadOnly)end end);updateAllESP()end end)
@@ -334,17 +400,12 @@ if s and r then
     function createWindow()
         if WindowRef then return end
         local ok,win=pcall(function()return WindUI:CreateWindow({Title="机场安全透视",Author="b站英吉利超入_",Icon="solar:shield-warning-bold",Size=UDim2.fromOffset(750,520),ToggleKey=Enum.KeyCode.RightShift,Folder="airport-esp",Acrylic=true,Transparent=true,Resizable=false,SideBarWidth=180,ScrollBarEnabled=true,HideSearchBar=true})end)
-        if not ok or not win then print("[机场安全透视] 窗口创建失败:",ok);return end;WindowRef=win;pcall(function()WindUI.TransparencyValue=0.22 end)
+        if not ok or not win then print("[机场安全透视] 窗口创建失败:",ok);return end;WindowRef=win
+        -- Bug D: 使用 WindUI.TransparencyValue 而不是 WindowRef:ToggleTransparency
+        pcall(function() WindUI.TransparencyValue = 0.22 end)
         
-        -- 窗口关闭事件：自动清理粒子
-        pcall(function()
-            win.OnClose = function()
-                destroyParticles()
-            end
-            win.OnOpen = function()
-                if Settings.Particles then createParticles() end
-            end
-        end)
+        -- Bug B: 启动窗口可见性轮询
+        startWindowVisibilityPoll()
 
         local mt=win:Tab({Title="主控面板",Icon="solar:slider-vertical-bold"});mt:Paragraph({Title="👁 透视控制"});Controls.ESPToggle=mt:Toggle({Flag="ESPToggle",Title="透视开关",Value=false,Callback=function(v)Settings.Enabled=v;updateAllESP();if v then task.spawn(scanNPCs)end end});Controls.BadOnlyToggle=mt:Toggle({Flag="BadOnlyToggle",Title="仅显示坏人",Value=false,Callback=function(v)Settings.BadOnly=v;updateAllESP()end})
         mt:Divider();mt:Paragraph({Title="📐 显示设置"});Controls.DistanceToggle=mt:Toggle({Flag="DistanceToggle",Title="显示距离",Value=false,Callback=function(v)Settings.ShowDistance=v end});Controls.HealthToggle=mt:Toggle({Flag="HealthToggle",Title="显示血量",Value=false,Callback=function(v)Settings.ShowHealth=v end})
@@ -354,7 +415,7 @@ if s and r then
 
         local ut=win:Tab({Title="UI设置",Icon="solar:monitor-bold"});ut:Paragraph({Title="⚙️ 界面设置"});Controls.WindowKeybind=ut:Keybind({Flag="WindowKeybind",Title="窗口开关快捷键",Value="RightShift",Callback=function(k)Keybinds.Window=k;if WindowRef then pcall(function()WindowRef:SetToggleKey(Enum.KeyCode[k])end)end end});Controls.FloatingBtnToggle=ut:Toggle({Flag="FloatingBtnToggle",Title="显示悬浮按钮",Value=IsMobile,Callback=function(v)if FloatingButtonGui then FloatingButtonGui.Enabled=v end end})
         ut:Divider();ut:Paragraph({Title="🌀 背景效果"});Controls.ParticlesToggle=ut:Toggle({Flag="ParticlesToggle",Title="浮动粒子背景(50个)",Value=true,Callback=function(v)Settings.Particles=v;if v then createParticles()else destroyParticles()end end})
-        ut:Divider();ut:Paragraph({Title="✨ 窗口效果"});Controls.AcrylicToggle=ut:Toggle({Flag="AcrylicToggle",Title="毛玻璃效果",Value=true,Callback=function(v)pcall(function()WindUI:ToggleAcrylic(v)end)end});Controls.TransparencyToggle=ut:Toggle({Flag="TransparencyToggle",Title="透明背景增强毛玻璃",Value=true,Callback=function(v)if WindowRef then pcall(function()WindowRef:ToggleTransparency(v)end)end end})
+        ut:Divider();ut:Paragraph({Title="✨ 窗口效果"});Controls.AcrylicToggle=ut:Toggle({Flag="AcrylicToggle",Title="毛玻璃效果",Value=true,Callback=function(v)pcall(function()WindUI:ToggleAcrylic(v)end)end});Controls.TransparencyToggle=ut:Toggle({Flag="TransparencyToggle",Title="透明背景",Value=true,Callback=function(v)if v then pcall(function()WindUI.TransparencyValue=0.22 end)else pcall(function()WindUI.TransparencyValue=0 end)end end})
         ut:Divider();ut:Paragraph({Title="🎨 主题系统",Desc="切换主题时粒子颜色自动适配（手动精选配色）"})
         local allThemes={};pcall(function()allThemes=WindUI:GetThemes()end);local themeNames={};for n,_ in pairs(allThemes)do table.insert(themeNames,n)end;table.sort(themeNames)
         Controls.ThemeDropdown=ut:Dropdown({Flag="ThemeDropdown",Title="选择主题",Values=themeNames,Value="Dark",Callback=function(selected)if selected then Settings.CurrentTheme=selected;pcall(function()WindUI:SetTheme(selected)end);Settings.ParticleColor=getThemePrimaryColor(selected);updateParticleColor()end end})
@@ -366,24 +427,25 @@ if s and r then
 
         task.spawn(function()task.wait(1);pcall(function()if CM then local c=CM:CreateConfig("default",true)end end);createParticles()end)
 
-        local at=win:Tab({Title="关于",Icon="solar:info-square-bold"});at:Paragraph({Title="机场安全透视 v12.3",Desc="三大究极Bug修复: 颜色/穿透/残留"});at:Divider();at:Paragraph({Title="👤 作者",Desc="b站英吉利超入_"});at:Divider();at:Paragraph({Title="💡 使用说明",Desc=IsMobile and"手机: 点击悬浮按钮"or"PC: 按 RightShift 打开菜单"});at:Paragraph({Title="⚠️ 提示",Desc="所有功能默认关闭，请在菜单中手动开启"});at:Paragraph({Title="🧹 清理",Desc="脚本启动时自动清理上次残留\n执行: _G.CleanupAirportESP()"})
+        local at=win:Tab({Title="关于",Icon="solar:info-square-bold"});at:Paragraph({Title="机场安全透视 v12.4",Desc="全面修复8个UI Bug"});at:Divider();at:Paragraph({Title="👤 作者",Desc="b站英吉利超入_"});at:Divider();at:Paragraph({Title="💡 使用说明",Desc=IsMobile and"手机: 点击悬浮按钮"or"PC: 按 RightShift 打开菜单"});at:Paragraph({Title="⚠️ 提示",Desc="所有功能默认关闭，请在菜单中手动开启"});at:Paragraph({Title="🧹 清理",Desc="脚本启动时自动清理上次残留\n执行: _G.CleanupAirportESP()"})
 
-        if IsMobile then
-            task.spawn(function()
-                task.wait(1);pcall(function()
-                    FloatingButtonGui=tagTrack(Instance.new("ScreenGui"));FloatingButtonGui.Name="AirportESP_Btn";FloatingButtonGui.Enabled=true;FloatingButtonGui.ResetOnSpawn=false;FloatingButtonGui.Parent=CoreGui
-                    local btn=tagTrack(Instance.new("ImageButton"));btn.Size=UDim2.new(0,50,0,50);btn.Position=UDim2.new(0.9,-25,0.8,-25);btn.BackgroundColor3=Color3.fromRGB(0,180,80);btn.BackgroundTransparency=0.2;btn.BorderSizePixel=0;btn.Parent=FloatingButtonGui
-                    tagTrack(Instance.new("UICorner"));btn.UICorner.CornerRadius=UDim.new(0,25);local t=tagTrack(Instance.new("TextLabel"));t.Size=UDim2.new(1,0,1,0);t.BackgroundTransparency=1;t.Text="👁";t.TextScaled=true;t.Font=Enum.Font.SourceSansBold;t.TextColor3=Color3.fromRGB(255,255,255);t.Parent=btn
-                    local d,ds,sp=false,nil,nil
-                    btn.InputBegan:Connect(function(inp)if inp.UserInputType==Enum.UserInputType.Touch or inp.UserInputType==Enum.UserInputType.MouseButton1 then d=true;ds=inp.Position;sp=btn.Position end end)
-                    btn.InputChanged:Connect(function(inp)if d and(inp.UserInputType==Enum.UserInputType.Touch or inp.UserInputType==Enum.UserInputType.MouseMovement)then local nx=sp.X.Scale+(inp.Position.X-ds.X)/800;local ny=sp.Y.Scale+(inp.Position.Y-ds.Y)/600;nx=math.max(0.02,math.min(0.95,nx));ny=math.max(0.02,math.min(0.95,ny));btn.Position=UDim2.new(nx,0,ny,0)end end)
-                    btn.InputEnded:Connect(function(inp)if inp.UserInputType==Enum.UserInputType.Touch or inp.UserInputType==Enum.UserInputType.MouseButton1 then d=false end end)
-                    btn.MouseButton1Click:Connect(mobileToggleWindow)
-                end)
+        -- Bug E: PC端也创建半透明悬浮按钮（默认隐藏，可在UI设置中开启）
+        task.spawn(function()
+            task.wait(1);pcall(function()
+                FloatingButtonGui=tagTrack(Instance.new("ScreenGui"));FloatingButtonGui.Name="AirportESP_Btn";
+                -- 默认：手机显示，PC隐藏
+                FloatingButtonGui.Enabled=IsMobile;FloatingButtonGui.ResetOnSpawn=false;FloatingButtonGui.Parent=CoreGui
+                local btn=tagTrack(Instance.new("ImageButton"));btn.Size=UDim2.new(0,50,0,50);btn.Position=UDim2.new(0.9,-25,0.8,-25);btn.BackgroundColor3=Color3.fromRGB(0,180,80);btn.BackgroundTransparency=0.2;btn.BorderSizePixel=0;btn.Parent=FloatingButtonGui
+                tagTrack(Instance.new("UICorner"));btn.UICorner.CornerRadius=UDim.new(0,25);local t=tagTrack(Instance.new("TextLabel"));t.Size=UDim2.new(1,0,1,0);t.BackgroundTransparency=1;t.Text="👁";t.TextScaled=true;t.Font=Enum.Font.SourceSansBold;t.TextColor3=Color3.fromRGB(255,255,255);t.Parent=btn
+                local d,ds,sp=false,nil,nil
+                btn.InputBegan:Connect(function(inp)if inp.UserInputType==Enum.UserInputType.Touch or inp.UserInputType==Enum.UserInputType.MouseButton1 then d=true;ds=inp.Position;sp=btn.Position end end)
+                btn.InputChanged:Connect(function(inp)if d and(inp.UserInputType==Enum.UserInputType.Touch or inp.UserInputType==Enum.UserInputType.MouseMovement)then local nx=sp.X.Scale+(inp.Position.X-ds.X)/800;local ny=sp.Y.Scale+(inp.Position.Y-ds.Y)/600;nx=math.max(0.02,math.min(0.95,nx));ny=math.max(0.02,math.min(0.95,ny));btn.Position=UDim2.new(nx,0,ny,0)end end)
+                btn.InputEnded:Connect(function(inp)if inp.UserInputType==Enum.UserInputType.Touch or inp.UserInputType==Enum.UserInputType.MouseButton1 then d=false end end)
+                btn.MouseButton1Click:Connect(mobileToggleWindow)
             end)
-        end
+        end)
     end
-    print("[机场安全透视] v12.3 已加载 | 作者: b站英吉利超入_")
+    print("[机场安全透视] v12.4 已加载 | 作者: b站英吉利超入_")
 else
     print("[机场安全透视] WindUI 加载失败，使用原生模式")
     local msg=Instance.new("Message");msg.Text="⚠️ WindUI 加载失败，使用原生模式";msg.Parent=Workspace;task.delay(5,function()msg:Destroy()end)
@@ -391,6 +453,6 @@ else
     local btn=tagTrack(Instance.new("ImageButton"));btn.Size=UDim2.new(0,50,0,50);btn.Position=UDim2.new(0.9,-25,0.8,-25);btn.BackgroundColor3=Color3.fromRGB(0,180,80);btn.BackgroundTransparency=0.2;btn.BorderSizePixel=0;btn.Parent=btnGui
     tagTrack(Instance.new("UICorner"));btn.UICorner.CornerRadius=UDim.new(0,25);local t=tagTrack(Instance.new("TextLabel"));t.Size=UDim2.new(1,0,1,0);t.BackgroundTransparency=1;t.Text="👁";t.TextScaled=true;t.Font=Enum.Font.SourceSansBold;t.TextColor3=Color3.fromRGB(255,255,255);t.Parent=btn
     btn.MouseButton1Click:Connect(function()Settings.Enabled=not Settings.Enabled;updateAllESP();btn.BackgroundColor3=Settings.Enabled and Color3.fromRGB(255,50,50)or Color3.fromRGB(0,180,80);if Settings.Enabled then task.spawn(scanNPCs)end end)
-    task.spawn(function()while true do pcall(function()cleanESP();scanNPCs()end)task.wait(3)end end)
+    task.spawn(function()while true do pcall(function()cleanESP();if Settings.Enabled then scanNPCs()end end)task.wait(3)end end)
 end
-print("[机场安全透视] v12.3 脚本加载完成")
+print("[机场安全透视] v12.4 脚本加载完成")
