@@ -1,5 +1,5 @@
 --[[
-    机场安全透视脚本 v6.6
+    机场安全透视脚本 v6.7
     作者: b站英吉利超入_
     功能: ESP透视 + 好人/坏人识别 + 自定义快捷键
 ]]
@@ -90,8 +90,6 @@ end
 local function createESP(character, npcType)
     if not character or not character.Parent then return end
     if isRealPlayer(character) then return end
-    
-    -- 已有则更新颜色
     if ESPObjects[character] then
         local color = npcType == "Good" and Color3.fromRGB(0,255,100) or Color3.fromRGB(255,50,50)
         local obj = ESPObjects[character]
@@ -99,37 +97,29 @@ local function createESP(character, npcType)
         if obj.Billboard then obj.Billboard.Enabled = Settings.Enabled end
         return
     end
-    
-    -- 找根部件
     local root = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Torso") or character:FindFirstChildOfClass("Part")
     if not root then return end
-    
-    -- 范围检查
     local myChar = Players.LocalPlayer and Players.LocalPlayer.Character
     local myRoot = myChar and (myChar:FindFirstChild("HumanoidRootPart") or myChar:FindFirstChild("Torso"))
     if myRoot and root and (root.Position - myRoot.Position).Magnitude > Settings.MaxRange then return end
     
-    -- Highlight 高亮
     local hl = Instance.new("Highlight")
     hl.Adornee = character; hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
     hl.FillTransparency = 0.4; hl.OutlineTransparency = 0.2
     hl.FillColor = npcType == "Good" and Color3.fromRGB(0,255,100) or Color3.fromRGB(255,50,50)
     hl.OutlineColor = Color3.fromRGB(255,255,255); hl.Enabled = Settings.Enabled; hl.Parent = CoreGui
     
-    -- 头顶标签
     local head = character:FindFirstChild("Head") or character:FindFirstChild("Torso") or root
     local bb = Instance.new("BillboardGui")
     bb.Adornee = head; bb.Size = UDim2.new(0,160,0,50); bb.StudsOffset = Vector3.new(0,3,0)
     bb.AlwaysOnTop = true; bb.Enabled = Settings.Enabled; bb.Parent = CoreGui
     
-    -- 类型标签
     local lbl = Instance.new("TextLabel")
     lbl.Size = UDim2.new(1,0,0.6,0); lbl.BackgroundColor3 = Color3.fromRGB(0,0,0); lbl.BackgroundTransparency = 0.5
     lbl.TextColor3 = npcType == "Good" and Color3.fromRGB(0,255,100) or Color3.fromRGB(255,50,50)
     lbl.TextScaled = true; lbl.Font = Enum.Font.SourceSansBold
     lbl.Text = npcType == "Good" and "👮 好人" or "💀 坏人"; lbl.BorderSizePixel = 0; lbl.Parent = bb
     
-    -- 信息行
     local info = Instance.new("TextLabel")
     info.Size = UDim2.new(1,0,0.4,0); info.Position = UDim2.new(0,0,0.6,0)
     info.BackgroundColor3 = Color3.fromRGB(0,0,0); info.BackgroundTransparency = 0.5
@@ -211,7 +201,6 @@ local function scanNPCs()
             end
             task.wait()
         end
-        -- 第二遍: 找只有 Head 但没有 Humanoid 的角色
         for _, obj in ipairs(Workspace:GetDescendants()) do
             if obj.Name == "Head" and obj:IsA("BasePart") and not obj:IsA("Tool") then
                 local model = obj.Parent
@@ -228,7 +217,7 @@ local function scanNPCs()
     IsScanning = false
 end
 
--- ========== 美化 UI (滚动条 + 滑块圆点) ==========
+-- ========== 美化 UI ==========
 local function beautifyUI()
     pcall(function()
         for _, s in ipairs(CoreGui:GetDescendants()) do
@@ -252,6 +241,22 @@ local function beautifyUI()
     end)
 end
 
+-- ========== 通用窗口显隐（兼容不同WindUI版本） ==========
+local function showWindow()
+    if not WindowRef then return end
+    local ok, _ = pcall(function() WindowRef.Visible = true end)
+    if not ok then pcall(function() WindowRef:Open() end) end
+    -- 再多试一种方式
+    if not ok then pcall(function() WindowRef:Show() end) end
+end
+
+local function hideWindow()
+    if not WindowRef then return end
+    local ok, _ = pcall(function() WindowRef.Visible = false end)
+    if not ok then pcall(function() WindowRef:Close() end) end
+    if not ok then pcall(function() WindowRef:Hide() end) end
+end
+
 -- ========== 加载 WindUI ==========
 local WindUI = nil
 local LoadSuccess = false
@@ -266,7 +271,7 @@ if s and r then
     
     -- Popup 确认弹窗
     WindUI:Popup({
-        Title = "机场安全透视 v6.6",
+        Title = "机场安全透视 v6.7",
         Icon = "info",
         Content = "是否加载透视脚本？",
         Buttons = {
@@ -299,26 +304,24 @@ if s and r then
             end
         end)
         
-        -- 快捷键监听
+        -- 快捷键监听（全pcall保护，不依赖特定方法存在）
         task.spawn(function()
             while true do
-                local input = UserInputService.InputBegan:Wait()
-                if input.UserInputType == Enum.UserInputType.Keyboard then
+                local ok, input = pcall(function() return UserInputService.InputBegan:Wait() end)
+                if ok and input and input.UserInputType == Enum.UserInputType.Keyboard then
                     pcall(function()
                         if Keybinds.Window and input.KeyCode == Keybinds.Window then
                             WindowVisible = not WindowVisible
-                            if WindowRef then
-                                if WindowVisible then WindowRef:Open() else WindowRef:Close() end
-                            end
+                            if WindowVisible then showWindow() else hideWindow() end
                         end
                         if Keybinds.ESP and input.KeyCode == Keybinds.ESP then
                             Settings.Enabled = not Settings.Enabled
-                            if Controls.ESPToggle then pcall(function() Controls.ESPToggle:Set({Value=Settings.Enabled}) end) end
+                            pcall(function() if Controls.ESPToggle then Controls.ESPToggle:Set({Value=Settings.Enabled}) end end)
                             updateAllESP()
                         end
                         if Keybinds.BadOnly and input.KeyCode == Keybinds.BadOnly then
                             Settings.BadOnly = not Settings.BadOnly
-                            if Controls.BadOnlyToggle then pcall(function() Controls.BadOnlyToggle:Set({Value=Settings.BadOnly}) end) end
+                            pcall(function() if Controls.BadOnlyToggle then Controls.BadOnlyToggle:Set({Value=Settings.BadOnly}) end end)
                             updateBadOnlyMode()
                         end
                     end)
@@ -330,13 +333,18 @@ if s and r then
     -- 创建窗口
     function createWindow()
         if WindowRef then return end
-        local win = WindUI:Window({
-            Title = "机场安全透视 - b站英吉利超入_",
-            Size = Vector2.new(750, 520),
-            ToggleKey = Enum.KeyCode.RightShift,
-            Toggle = false,
-            CanClose = true, CanMinimize = false, Resizable = false, Mobile = IsMobile,
-        })
+        local ok, win = pcall(function()
+            return WindUI:Window({
+                Title = "机场安全透视 - b站英吉利超入_",
+                Size = Vector2.new(750, 520),
+                ToggleKey = Enum.KeyCode.RightShift,
+                CanClose = true, CanMinimize = false, Resizable = false, Mobile = IsMobile,
+            })
+        end)
+        if not ok or not win then
+            print("[机场安全透视] 窗口创建失败")
+            return
+        end
         WindowRef = win
         
         -- 主控面板
@@ -362,7 +370,7 @@ if s and r then
         -- UI设置
         local uiTab = win:Tab("UI设置")
         uiTab:Paragraph("⚙️ 界面设置")
-        Controls.WindowKeybind = uiTab:Keybind({Title="窗口开关快捷键", Value=Enum.KeyCode.RightShift, Callback=function(key) Keybinds.Window=key; Settings.WindowKey=key; pcall(function() win:Update({ToggleKey=key}) end) end})
+        Controls.WindowKeybind = uiTab:Keybind({Title="窗口开关快捷键", Value=Enum.KeyCode.RightShift, Callback=function(key) Keybinds.Window=key; Settings.WindowKey=key end})
         Controls.FloatingBtnToggle = uiTab:Toggle({Title="显示悬浮按钮", Value=IsMobile, Callback=function(v) Settings.ShowFloatingButton=v; if FloatingButtonGui then FloatingButtonGui.Enabled=v end end})
         uiTab:Divider()
         uiTab:Paragraph("💡 提示: 窗口默认隐藏，按 RightShift 打开")
@@ -378,7 +386,7 @@ if s and r then
         
         -- 关于
         local aboutTab = win:Tab("关于")
-        aboutTab:Paragraph({Title="机场安全透视 v6.6", Desc="用于分辨好人与坏人的透视脚本"})
+        aboutTab:Paragraph({Title="机场安全透视 v6.7", Desc="用于分辨好人与坏人的透视脚本"})
         aboutTab:Divider()
         aboutTab:Paragraph({Title="👤 作者", Desc="b站英吉利超入_"})
         aboutTab:Divider()
@@ -386,7 +394,7 @@ if s and r then
         aboutTab:Paragraph({Title="⚠️ 提示", Desc="所有功能默认关闭，请在菜单中手动开启"})
         aboutTab:Button({Title="📦 GitHub", Callback=function() pcall(function() WindUI:Notify({Title="仓库地址", Content="github.com/mazihao62-beep/airport-security-esp", Duration=3}) end) end})
         
-        -- 统计更新循环
+        -- 统计更新循环（全pcall保护）
         task.spawn(function()
             while true do
                 pcall(function()
@@ -433,7 +441,7 @@ if s and r then
                     btn.MouseButton1Click:Connect(function()
                         if WindowRef then
                             WindowVisible = not WindowVisible
-                            pcall(function() if WindowVisible then WindowRef:Open() else WindowRef:Close() end end)
+                            if WindowVisible then showWindow() else hideWindow() end
                         end
                     end)
                 end)
@@ -441,7 +449,7 @@ if s and r then
         end
     end
 else
-    -- ========== 原生模式 (WindUI 加载失败) ==========
+    -- ========== 原生模式 ==========
     LoadSuccess = false
     local msg = Instance.new("Message")
     msg.Text = "⚠️ WindUI 加载失败，使用原生模式 | 按 F4 开关透视"
@@ -479,4 +487,4 @@ else
     end)
 end
 
-print("[机场安全透视] v6.6 已加载 | 作者: b站英吉利超入_")
+print("[机场安全透视] v6.7 已加载 | 作者: b站英吉利超入_")
