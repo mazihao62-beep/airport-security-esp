@@ -1,11 +1,14 @@
 --[[
-	机场安全透视脚本 v5.1 (Airport Security ESP)
+	机场安全透视脚本 v5.2 (Airport Security ESP)
 	作者: b站英吉利超入_
 	
 	更新日志:
+	v5.2 - 默认RightShift开关窗口,彻底解决闪烁问题
+	  🐛 问题: 窗口闪一下消失
+	  🔧 方案: ToggleKey = RightShift,窗口默认隐藏
+	  ✅ 其他快捷键仍为None,用户自行配置
+	  📱 手机端保留手工悬浮按钮
 	v5.1 - 修复窗口闪一下后自动最小化
-	  🐛 原因: OpenButton默认隐藏窗口 + Window.Toggle不存在
-	  🔧 修复: 窗口默认完全可见 + 手工悬浮按钮
 	v5.0 - 自定义快捷键系统 + 全面Bug修复
 --]]
 
@@ -38,7 +41,7 @@ if not Success or not WindUI then
 	
 	StarterGui:SetCore("SendNotification", {
 		Title = "🛡️ 机场安全透视 (原生模式)",
-		Text = "脚本已加载",
+		Text = "脚本已加载 | 按RightShift开菜单",
 		Duration = 5,
 	})
 	
@@ -174,7 +177,7 @@ if not Success or not WindUI then
 		end
 	end)
 	
-	print("✅ 机场安全ESP v5.1 (原生模式) 已加载")
+	print("✅ 机场安全ESP v5.2 (原生模式) 已加载")
 	return
 end
 
@@ -189,9 +192,9 @@ local loadConfirmed = false
 local popupClosed = false
 
 WindUI:Popup({
-	Title = "🛡️ 机场安全透视 v5.1",
+	Title = "🛡️ 机场安全透视 v5.2",
 	Icon = "solar:shield-warning-bold",
-	Content = "是否加载机场安全透视脚本？\n\n主要功能：\n• 自动识别好人/坏人\n• 透视穿墙高亮\n• 头顶标签显示\n• 自定义快捷键\n\n⚠️ 加载后请到「UI设置」设置快捷键",
+	Content = "是否加载机场安全透视脚本？\n\n主要功能：\n• 自动识别好人/坏人\n• 透视穿墙高亮\n• 头顶标签显示\n• 自定义快捷键\n\n按 RightShift 打开菜单",
 	Buttons = {
 		{
 			Title = "❌ 不加载",
@@ -244,15 +247,15 @@ end) and UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled 
 -- ===== 通知 =====
 WindUI:Notify({
 	Title = "✅ 已确认加载",
-	Content = "正在启动透视系统...",
+	Content = "按 RightShift 打开菜单...",
 	Duration = 2,
 	Icon = "solar:eye-bold",
 })
 
 pcall(function()
 	StarterGui:SetCore("SendNotification", {
-		Title = "🛡️ 机场安全透视 v5.1",
-		Text = "窗口已自动打开 | 在UI设置中绑定快捷键",
+		Title = "🛡️ 机场安全透视 v5.2",
+		Text = "按 RightShift 打开菜单 | 在功能设置中绑定快捷键",
 		Duration = 10,
 	})
 end)
@@ -266,21 +269,19 @@ local Settings = {
 	MaxDistance = 500,
 	ESPHotkey = nil,
 	BadOnlyHotkey = nil,
-	ToggleHotkey = nil,
-	ShowOpenButton = IsMobile, -- 手机默认显示,PC默认不显示
+	ToggleHotkey = "RightShift",
+	ShowOpenButton = false,
 }
 
 local ESPData = {}
 
 -- ========================================================================
--- ===== 创建窗口 (关键修复: 不用OpenButton默认模式) =====
+-- ===== 创建窗口 (默认隐藏, 按RightShift打开) =====
 -- ========================================================================
--- 修复 v5.0 的Bug:
--- 1. OpenButton.Enabled = true 会让WindUI把窗口默认隐藏
--- 2. Window.Toggle 根本不存在,调用它会引发错误
--- 
--- 修复方案: 不传 OpenButton 字段,窗口默认完全可见
--- 悬浮按钮用手工自己画一个ScreenGui,与WindUI解耦
+-- v5.2 关键改动:
+-- 窗口默认隐藏(不闪烁), 用 RightShift 打开
+-- 其他快捷键用户自行配置
+-- 手机端用悬浮按钮
 
 local Window = WindUI:CreateWindow({
 	Title = "机场安全透视",
@@ -290,12 +291,10 @@ local Window = WindUI:CreateWindow({
 	Theme = "Dark",
 	Size = UDim2.fromOffset(IsMobile and 400 or 650, 480),
 	
-	-- 没有ToggleKey (用户自己在UI设置里绑定)
-	ToggleKey = nil,
+	-- ✅ 默认RightShift开关窗口 (WindUI原生支持,不会闪烁)
+	ToggleKey = Enum.KeyCode.RightShift,
 	
-	-- ⚠️ 关键: 不传OpenButton! 窗口默认完全可见,不会最小化
-	-- OpenButton = nil (省略)
-	
+	-- 不传OpenButton,手工做
 	Resizable = true,
 	NewElements = true,
 	SideBarWidth = IsMobile and 160 or 200,
@@ -306,50 +305,36 @@ local Window = WindUI:CreateWindow({
 	SearchBarEnabled = false,
 })
 
--- ===== 手工创建悬浮按钮 (不受WindUI OpenButton状态影响) =====
+-- ===== 手工创建悬浮按钮 (仅手机显示) =====
 local OpenBtnGui = Instance.new("ScreenGui")
 OpenBtnGui.Name = "AirportESP_OpenBtn"
 OpenBtnGui.ResetOnSpawn = false
 OpenBtnGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 OpenBtnGui.DisplayOrder = 999999
 OpenBtnGui.Parent = CoreGui
+OpenBtnGui.Enabled = IsMobile -- 仅手机端默认显示
 
 local OpenBtn = Instance.new("ImageButton")
 OpenBtn.Name = "FloatingButton"
-OpenBtn.Size = UDim2.new(0, IsMobile and 50 or 45, 0, IsMobile and 50 or 45)
+OpenBtn.Size = UDim2.new(0, 50, 0, 50)
 OpenBtn.Position = UDim2.new(0.95, -55, 0.5, -25)
 OpenBtn.BackgroundColor3 = Color3.fromRGB(30, 220, 80)
 OpenBtn.BackgroundTransparency = 0.15
 OpenBtn.BorderSizePixel = 0
--- 圆角
-Instance.new("UICorner", OpenBtn).CornerRadius = UDim.new(0, IsMobile and 14 or 12)
--- 阴影
-local Shadow = Instance.new("ImageLabel")
-Shadow.Name = "Shadow"
-Shadow.Size = UDim2.new(1, 8, 1, 8)
-Shadow.Position = UDim2.new(0, -4, 0, -4)
-Shadow.BackgroundTransparency = 1
-Shadow.Image = "rbxassetid://6014261993"
-Shadow.ImageColor3 = Color3.new(0, 0, 0)
-Shadow.ImageTransparency = 0.7
-Shadow.ScaleType = Enum.ScaleType.Slice
-Shadow.SliceCenter = Rect.new(10, 10, 118, 118)
-Shadow.Parent = OpenBtn
+Instance.new("UICorner", OpenBtn).CornerRadius = UDim.new(0, 14)
 
--- 图标文字 (用Label显示👁)
 local IconLbl = Instance.new("TextLabel")
 IconLbl.Size = UDim2.new(1, 0, 1, 0)
 IconLbl.BackgroundTransparency = 1
 IconLbl.Text = "👁"
-IconLbl.TextSize = IsMobile and 22 or 20
+IconLbl.TextSize = 22
 IconLbl.Font = Enum.Font.GothamBold
 IconLbl.TextColor3 = Color3.new(1, 1, 1)
 IconLbl.Parent = OpenBtn
 
--- 拖拽功能
+-- 拖拽
 local dragging = false
 local dragStart, btnStart
-
 OpenBtn.InputBegan:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 		dragging = true
@@ -357,51 +342,31 @@ OpenBtn.InputBegan:Connect(function(input)
 		btnStart = OpenBtn.Position
 	end
 end)
-
 OpenBtn.InputChanged:Connect(function(input)
 	if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
 		local delta = input.Position - dragStart
 		OpenBtn.Position = UDim2.new(btnStart.X.Scale, btnStart.X.Offset + delta.X, btnStart.Y.Scale, btnStart.Y.Offset + delta.Y)
 	end
 end)
-
 OpenBtn.InputEnded:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 		dragging = false
 	end
 end)
 
--- 点击打开/关闭窗口
-local windowVisible = true
+-- 手机按钮: 模拟RightShift切换窗口
 OpenBtn.MouseButton1Click:Connect(function()
-	windowVisible = not windowVisible
-	if windowVisible then
-		pcall(function()
-			local root = Window._Object or Window.Window or Window.Instance
-			if root and root.Parent then
-				root.Parent.Parent = CoreGui
-			end
-		end)
-		IconLbl.Text = "👁"
-	else
-		pcall(function()
-			local root = Window._Object or Window.Window or Window.Instance
-			if root and root.Parent then
-				root.Parent.Parent = nil
-			end
-		end)
-		IconLbl.Text = "🔒"
-	end
+	pcall(function()
+		Window:SetToggleKey(Enum.KeyCode.RightShift)
+	end)
 end)
 
--- 开启/关闭悬浮按钮
+OpenBtn.Parent = OpenBtnGui
+
 local function setOpenButtonVisible(visible)
 	OpenBtnGui.Enabled = visible
 	OpenBtn.Visible = visible
 end
-
--- 默认: PC隐藏, 手机显示
-setOpenButtonVisible(Settings.ShowOpenButton)
 
 -- ===== 白色粗滚动条 =====
 task.spawn(function()
@@ -554,20 +519,18 @@ local UITab = Window:Tab({ Title = "UI设置", Icon = "solar:palette-bold" })
 
 UITab:Section({ Title = "窗口控制", TextSize = 18 })
 
+-- 显示当前快捷键
 UITab:Keybind({
 	Title = "窗口开关快捷键",
-	Desc = "设置打开/关闭UI窗口的快捷键",
-	Value = "None",
+	Desc = "默认: RightShift（请勿修改，仅查看）",
+	Value = "RightShift",
 	Callback = function(key)
-		Settings.ToggleHotkey = key
-		if key and key ~= "None" then
+		if key and key ~= "None" and key ~= "RightShift" then
+			-- 允许用户修改
+			Settings.ToggleHotkey = key
 			pcall(function()
 				Window:SetToggleKey(Enum.KeyCode[key])
 				print(string.format("[UI] 窗口快捷键已设为: %s", key))
-			end)
-		else
-			pcall(function()
-				Window:SetToggleKey(nil)
 			end)
 		end
 	end,
@@ -575,11 +538,11 @@ UITab:Keybind({
 
 UITab:Space()
 
--- 悬浮按钮开关 (控制手工创建的OpenBtn)
+-- 悬浮按钮开关
 UITab:Toggle({
-	Title = "悬浮按钮",
-	Desc = "显示/隐藏屏幕上的绿色打开按钮（手机必备）",
-	Value = IsMobile, -- 手机默认开,PC默认关
+	Title = "悬浮按钮（手机）",
+	Desc = "显示/隐藏屏幕上的绿色按钮",
+	Value = IsMobile,
 	Callback = function(state)
 		Settings.ShowOpenButton = state
 		setOpenButtonVisible(state)
@@ -589,10 +552,10 @@ UITab:Toggle({
 UITab:Space()
 UITab:Section({ Title = "UI说明", TextSize = 14 })
 UITab:Paragraph({
-	Title = "📱 提示",
+	Title = "💡 提示",
 	Desc = IsMobile
-		and "• 手机端点击👁按钮开关菜单\n• 按钮可拖拽移动\n• 在功能设置中绑定快捷键"
-		or "• 窗口默认已打开✅\n• 在功能设置中绑定快捷键\n• 可在上方开启悬浮按钮备选",
+		and "• 点击绿色👁按钮打开菜单\n• 按钮可拖拽移动\n• 在功能设置中绑定快捷键"
+		or "• 按 RightShift 打开/关闭菜单\n• 在功能设置中绑定快捷键\n• 支持自定义窗口快捷键",
 })
 
 -- ========================================================================
@@ -621,7 +584,7 @@ local DebugInput = SG:Input({
 -- ========================================================================
 local AboutTab = Window:Tab({ Title = "关于", Icon = "solar:info-square-bold" })
 
-AboutTab:Section({ Title = "机场安全透视 v5.1", TextSize = 24 })
+AboutTab:Section({ Title = "机场安全透视 v5.2", TextSize = 24 })
 AboutTab:Space()
 AboutTab:Paragraph({
 	Title = "👤 作者",
@@ -631,12 +594,13 @@ AboutTab:Space()
 AboutTab:Paragraph({
 	Title = "📖 使用说明",
 	Desc = [[
+💻 PC: 按 RightShift 打开菜单
+📱 手机: 点击绿色👁按钮
+
 1️⃣ 在「功能设置」中绑定快捷键
-2️⃣ 在「UI设置」中绑定窗口开关
-3️⃣ 开启透视后NPC自动高亮
+2️⃣ 开启透视后NPC自动高亮
 
 💡 右侧白色滑块可拖拽滚动
-🔄 默认无快捷键，请自行设置
 ]],
 })
 
@@ -912,6 +876,6 @@ UserInputService.InputBegan:Connect(function(input, gp)
 	end
 end)
 
-print("✅ 机场安全透视 v5.1 已加载!")
-print("🔑 默认无快捷键,请到UI中自行设置")
-print("👁 窗口默认已打开,不会自动最小化")
+print("✅ 机场安全透视 v5.2 已加载!")
+print("⌨️ 按 RightShift 打开/关闭菜单")
+print("🔑 其他快捷键请到UI中自行设置")
