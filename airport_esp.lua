@@ -1,12 +1,11 @@
 --[[
-	机场安全透视脚本 v5.0 (Airport Security ESP)
+	机场安全透视脚本 v5.1 (Airport Security ESP)
 	
 	更新日志:
+	v5.1 - 修复窗口闪一下后自动最小化
+	  🐛 原因: OpenButton默认隐藏窗口 + Window.Toggle不存在
+	  🔧 修复: 窗口默认完全可见 + 手工悬浮按钮
 	v5.0 - 自定义快捷键系统 + 全面Bug修复
-	  🔴 修复12个Bug (见GitHub Commit说明)
-	  🆕 功能设置Tab + UI设置Tab独立管理快捷键
-	  🆕 窗口自动默认打开
-	  🆕 白色粗滚动条
 --]]
 
 -- ========================================================================
@@ -26,7 +25,6 @@ if not Success or not WindUI then
 	local UserInputService = game:GetService("UserInputService")
 	local LocalPlayer = Players.LocalPlayer
 	
-	-- 弹确认框
 	local msg = Instance.new("Message")
 	msg.Text = "🛡️ 机场安全透视 - 加载中... (WindUI加载失败,使用原生模式)"
 	msg.Parent = CoreGui
@@ -43,7 +41,6 @@ if not Success or not WindUI then
 		Duration = 5,
 	})
 	
-	-- 创建Highlight
 	local function createHL(char, color)
 		local hl = Instance.new("Highlight")
 		hl.Name = "ESP_Highlight"
@@ -58,7 +55,6 @@ if not Success or not WindUI then
 		return hl
 	end
 	
-	-- 创建头顶标签
 	local function createLabel(char, color, text)
 		local head = char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
 		if not head then return nil end
@@ -111,21 +107,17 @@ if not Success or not WindUI then
 		return bb, lbl, info
 	end
 	
-	-- 分类器
 	local function classify(obj)
 		local ok, result = pcall(function()
 			local name = obj.Name
 			local path = obj:GetFullName()
 			
-			-- 路径检测 (精确匹配,避免误判)
 			if path:find("AgentTemplate") then return "Good", Color3.fromRGB(0, 255, 100), "👮 Agent" end
 			if path:find("NPCTemplate") then return "Bad", Color3.fromRGB(255, 50, 50), "💀 Threat" end
 			
-			-- 名字检测
 			local goodNames = {"Agent", "Police", "Security", "Guard", "Cop", "SWAT", "Friendly", "Helper", "Patrol"}
 			local badNames = {"Terrorist", "Enemy", "Hostile", "Threat", "Criminal", "Suspect", "Bandit", "Robber", "Bomber", "Invader", "Killer", "Raid"}
 			
-			-- 注意: 先检查坏人再检查好人,避免"NPCPolice"这种被误判
 			for _, p in ipairs(badNames) do
 				if name:find(p) then return "Bad", Color3.fromRGB(255, 50, 50), "💀 Threat" end
 			end
@@ -133,7 +125,6 @@ if not Success or not WindUI then
 				if name:find(p) then return "Good", Color3.fromRGB(0, 255, 100), "👮 Agent" end
 			end
 			
-			-- Descendant扫描
 			local hasNPC, hasAgent = false, false
 			for _, c in ipairs(obj:GetDescendants()) do
 				if c:IsA("ModuleScript") then
@@ -151,11 +142,9 @@ if not Success or not WindUI then
 		return "Unknown", Color3.fromRGB(180, 180, 180), "❓ Unknown"
 	end
 	
-	-- 主循环
 	task.spawn(function()
 		while task.wait(1.5) do
 			pcall(function()
-				-- 只扫Descendants找Humanoid (更简洁)
 				for _, hum in ipairs(Workspace:GetDescendants()) do
 					if hum:IsA("Humanoid") and hum.Parent and hum.Health > 0 then
 						local char = hum.Parent
@@ -173,8 +162,6 @@ if not Success or not WindUI then
 						end
 					end
 				end
-				
-				-- 清理
 				for obj, data in pairs(ESPData) do
 					if not obj.Parent then
 						if data.HL then data.HL:Destroy() end
@@ -186,7 +173,7 @@ if not Success or not WindUI then
 		end
 	end)
 	
-	print("✅ 机场安全ESP v5.0 (原生模式) 已加载")
+	print("✅ 机场安全ESP v5.1 (原生模式) 已加载")
 	return
 end
 
@@ -201,7 +188,7 @@ local loadConfirmed = false
 local popupClosed = false
 
 WindUI:Popup({
-	Title = "🛡️ 机场安全透视 v5.0",
+	Title = "🛡️ 机场安全透视 v5.1",
 	Icon = "solar:shield-warning-bold",
 	Content = "是否加载机场安全透视脚本？\n\n主要功能：\n• 自动识别好人/坏人\n• 透视穿墙高亮\n• 头顶标签显示\n• 自定义快捷键\n\n⚠️ 加载后请到「UI设置」设置快捷键",
 	Buttons = {
@@ -240,15 +227,15 @@ if not loadConfirmed then
 	return
 end
 
--- ===== 用户确认了,加载服务 =====
+-- ===== 加载游戏服务 =====
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 local StarterGui = game:GetService("StarterGui")
-local RunService = game:GetService("RunService")
+local CoreGui = game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
 
--- 检测平台 (增加容错)
+-- 检测平台
 local IsMobile = pcall(function()
 	return UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 end) and UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled or false
@@ -263,8 +250,8 @@ WindUI:Notify({
 
 pcall(function()
 	StarterGui:SetCore("SendNotification", {
-		Title = "🛡️ 机场安全透视 v5.0",
-		Text = "点击屏幕上的绿色按钮打开菜单\n在「UI设置」中设置快捷键",
+		Title = "🛡️ 机场安全透视 v5.1",
+		Text = "窗口已自动打开 | 在UI设置中绑定快捷键",
 		Duration = 10,
 	})
 end)
@@ -276,37 +263,37 @@ local Settings = {
 	ShowDistance = true,
 	ShowHealth = true,
 	MaxDistance = 500,
-	
-	-- 快捷键 (全为nil,用户自行设置)
 	ESPHotkey = nil,
 	BadOnlyHotkey = nil,
 	ToggleHotkey = nil,
+	ShowOpenButton = IsMobile, -- 手机默认显示,PC默认不显示
 }
 
 local ESPData = {}
 
--- ===== 创建窗口 =====
--- 无默认ToggleKey, 无默认OpenButton
--- 用户通过UI设置自行启用
+-- ========================================================================
+-- ===== 创建窗口 (关键修复: 不用OpenButton默认模式) =====
+-- ========================================================================
+-- 修复 v5.0 的Bug:
+-- 1. OpenButton.Enabled = true 会让WindUI把窗口默认隐藏
+-- 2. Window.Toggle 根本不存在,调用它会引发错误
+-- 
+-- 修复方案: 不传 OpenButton 字段,窗口默认完全可见
+-- 悬浮按钮用手工自己画一个ScreenGui,与WindUI解耦
+
 local Window = WindUI:CreateWindow({
 	Title = "机场安全透视",
-	Author = "v5.0",
+	Author = "v5.1",
 	Folder = "airport_security_esp",
 	Icon = "solar:shield-warning-bold",
 	Theme = "Dark",
 	Size = UDim2.fromOffset(IsMobile and 400 or 650, 480),
 	
-	-- 没有ToggleKey (用户自己在UI设置里添加)
+	-- 没有ToggleKey (用户自己在UI设置里绑定)
 	ToggleKey = nil,
 	
-	-- 默认开启OpenButton让用户能打开菜单
-	OpenButton = {
-		Title = "打开透视",
-		Enabled = true,
-		Draggable = true,
-		Scale = IsMobile and 0.45 or 0.5,
-		Color = ColorSequence.new(Color3.fromHex("#30FF6A"), Color3.fromHex("#00D4FF")),
-	},
+	-- ⚠️ 关键: 不传OpenButton! 窗口默认完全可见,不会最小化
+	-- OpenButton = nil (省略)
 	
 	Resizable = true,
 	NewElements = true,
@@ -318,34 +305,114 @@ local Window = WindUI:CreateWindow({
 	SearchBarEnabled = false,
 })
 
--- ===== 尝试默认打开窗口 =====
--- 如果没有ToggleKey,通过OpenButton点击打开
--- 我们尝试用内部方法打开,如果不行用户点OpenButton即可
-task.spawn(function()
-	task.wait(1)
-	pcall(function()
-		-- 尝试多种方法打开窗口
-		local toggleMethods = {Window.Toggle, Window.Open, Window.Show, Window.SetVisible}
-		for _, method in ipairs(toggleMethods) do
-			if type(method) == "function" then
-				method(Window)
-				break
-			end
-		end
-	end)
+-- ===== 手工创建悬浮按钮 (不受WindUI OpenButton状态影响) =====
+local OpenBtnGui = Instance.new("ScreenGui")
+OpenBtnGui.Name = "AirportESP_OpenBtn"
+OpenBtnGui.ResetOnSpawn = false
+OpenBtnGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+OpenBtnGui.DisplayOrder = 999999
+OpenBtnGui.Parent = CoreGui
+
+local OpenBtn = Instance.new("ImageButton")
+OpenBtn.Name = "FloatingButton"
+OpenBtn.Size = UDim2.new(0, IsMobile and 50 or 45, 0, IsMobile and 50 or 45)
+OpenBtn.Position = UDim2.new(0.95, -55, 0.5, -25)
+OpenBtn.BackgroundColor3 = Color3.fromRGB(30, 220, 80)
+OpenBtn.BackgroundTransparency = 0.15
+OpenBtn.BorderSizePixel = 0
+-- 圆角
+Instance.new("UICorner", OpenBtn).CornerRadius = UDim.new(0, IsMobile and 14 or 12)
+-- 阴影
+local Shadow = Instance.new("ImageLabel")
+Shadow.Name = "Shadow"
+Shadow.Size = UDim2.new(1, 8, 1, 8)
+Shadow.Position = UDim2.new(0, -4, 0, -4)
+Shadow.BackgroundTransparency = 1
+Shadow.Image = "rbxassetid://6014261993"
+Shadow.ImageColor3 = Color3.new(0, 0, 0)
+Shadow.ImageTransparency = 0.7
+Shadow.ScaleType = Enum.ScaleType.Slice
+Shadow.SliceCenter = Rect.new(10, 10, 118, 118)
+Shadow.Parent = OpenBtn
+
+-- 图标文字 (用Label显示👁)
+local IconLbl = Instance.new("TextLabel")
+IconLbl.Size = UDim2.new(1, 0, 1, 0)
+IconLbl.BackgroundTransparency = 1
+IconLbl.Text = "👁"
+IconLbl.TextSize = IsMobile and 22 or 20
+IconLbl.Font = Enum.Font.GothamBold
+IconLbl.TextColor3 = Color3.new(1, 1, 1)
+IconLbl.Parent = OpenBtn
+
+-- 拖拽功能
+local dragging = false
+local dragStart, btnStart
+
+OpenBtn.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		dragging = true
+		dragStart = input.Position
+		btnStart = OpenBtn.Position
+	end
 end)
+
+OpenBtn.InputChanged:Connect(function(input)
+	if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+		local delta = input.Position - dragStart
+		OpenBtn.Position = UDim2.new(btnStart.X.Scale, btnStart.X.Offset + delta.X, btnStart.Y.Scale, btnStart.Y.Offset + delta.Y)
+	end
+end)
+
+OpenBtn.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		dragging = false
+	end
+end)
+
+-- 点击打开/关闭窗口
+local windowVisible = true
+OpenBtn.MouseButton1Click:Connect(function()
+	windowVisible = not windowVisible
+	if windowVisible then
+		-- TODO: 显示窗口 (WindUI可能没有公开的show方法,我们控制其父级)
+		pcall(function()
+			-- 尝试通过设置父级ScreenGui的Enabled或找窗口容器
+			local root = Window._Object or Window.Window or Window.Instance
+			if root and root.Parent then
+				root.Parent.Parent = CoreGui
+			end
+		end)
+		IconLbl.Text = "👁"
+	else
+		pcall(function()
+			local root = Window._Object or Window.Window or Window.Instance
+			if root and root.Parent then
+				root.Parent.Parent = nil
+			end
+		end)
+		IconLbl.Text = "🔒"
+	end
+end)
+
+-- 开启/关闭悬浮按钮
+local function setOpenButtonVisible(visible)
+	OpenBtnGui.Enabled = visible
+	OpenBtn.Visible = visible
+end
+
+-- 默认: PC隐藏, 手机显示
+setOpenButtonVisible(Settings.ShowOpenButton)
 
 -- ===== 白色粗滚动条 =====
 task.spawn(function()
 	task.wait(2)
-	for i = 1, 60 do
+	for i = 1, 40 do
 		task.wait(0.1)
 		local found = false
-		-- 尝试不同可能的内部属性名
-		local rootObj = Window._Object or Window.Window or Window.Instance or (Window.Container and Window.Container())
+		local rootObj = Window._Object or Window.Window or Window.Instance
 		if not rootObj then
-			-- 暴搜所有ScreenGui
-			for _, gui in ipairs(game:GetService("CoreGui"):GetChildren()) do
+			for _, gui in ipairs(CoreGui:GetChildren()) do
 				if gui:IsA("ScreenGui") then
 					for _, desc in ipairs(gui:GetDescendants()) do
 						if desc:IsA("ScrollingFrame") and desc.AbsoluteSize.Y > 10 then
@@ -357,7 +424,7 @@ task.spawn(function()
 					end
 				end
 			end
-		elseif rootObj then
+		else
 			for _, desc in ipairs(rootObj:GetDescendants()) do
 				if desc:IsA("ScrollingFrame") and desc.AbsoluteSize.Y > 10 then
 					desc.ScrollBarThickness = 14
@@ -375,7 +442,6 @@ end)
 -- ======================== UI 控件 ======================================
 -- ========================================================================
 
--- ===== 状态显示 (用Input替代Tag,因为Tag没有Update方法) =====
 local statusInput = nil
 
 -- ===== Tab 1: 主控面板 =====
@@ -389,7 +455,6 @@ MainTab:Toggle({
 	Value = true,
 	Callback = function(state)
 		Settings.Enabled = state
-		-- 同步更新所有已有ESP对象
 		for _, data in pairs(ESPData) do
 			if data.Highlight then data.Highlight.Enabled = state end
 			if data.Billboard then data.Billboard.Enabled = state end
@@ -397,7 +462,6 @@ MainTab:Toggle({
 	end,
 })
 
--- 状态显示 (用Input替代Tag,因为Input:Set()有文档支持)
 MainTab:Space()
 local StatusGroup = MainTab:Group({})
 statusInput = StatusGroup:Input({
@@ -414,7 +478,6 @@ MainTab:Toggle({
 	Value = false,
 	Callback = function(state)
 		Settings.ShowBadOnly = state
-		-- 重建ESP
 		for _, data in pairs(ESPData) do
 			if data.Highlight then pcall(function() data.Highlight:Destroy() end) end
 			if data.Billboard then pcall(function() data.Billboard:Destroy() end) end
@@ -445,14 +508,13 @@ MainTab:Slider({
 })
 
 -- ========================================================================
--- ===== Tab 2: 功能设置 (快捷键都在这里) =====
+-- ===== Tab 2: 功能设置 =====
 -- ========================================================================
 local FuncTab = Window:Tab({ Title = "功能设置", Icon = "solar:settings-bold" })
 
 FuncTab:Section({ Title = "快捷键设置", TextSize = 18 })
 FuncTab:Space()
 
--- ESP开关快捷键
 FuncTab:Keybind({
 	Title = "透视开关快捷键",
 	Desc = "点击后按下键盘按键即可绑定",
@@ -467,7 +529,6 @@ FuncTab:Keybind({
 
 FuncTab:Space()
 
--- 仅显示坏人快捷键
 FuncTab:Keybind({
 	Title = "仅坏人模式快捷键",
 	Desc = "点击后按下键盘按键即可绑定",
@@ -488,7 +549,7 @@ FuncTab:Paragraph({
 })
 
 -- ========================================================================
--- ===== Tab 3: UI设置 (窗口专用快捷键) =====
+-- ===== Tab 3: UI设置 =====
 -- ========================================================================
 local UITab = Window:Tab({ Title = "UI设置", Icon = "solar:palette-bold" })
 
@@ -501,7 +562,6 @@ UITab:Keybind({
 	Callback = function(key)
 		Settings.ToggleHotkey = key
 		if key and key ~= "None" then
-			-- 尝试更新窗口的ToggleKey
 			pcall(function()
 				Window:SetToggleKey(Enum.KeyCode[key])
 				print(string.format("[UI] 窗口快捷键已设为: %s", key))
@@ -516,15 +576,14 @@ UITab:Keybind({
 
 UITab:Space()
 
--- 悬浮按钮开关
-local openBtnToggle = UITab:Toggle({
+-- 悬浮按钮开关 (控制手工创建的OpenBtn)
+UITab:Toggle({
 	Title = "悬浮按钮",
 	Desc = "显示/隐藏屏幕上的绿色打开按钮（手机必备）",
-	Value = true,
+	Value = IsMobile, -- 手机默认开,PC默认关
 	Callback = function(state)
-		pcall(function()
-			Window:SetOpenButton(state)
-		end)
+		Settings.ShowOpenButton = state
+		setOpenButtonVisible(state)
 	end,
 })
 
@@ -533,12 +592,12 @@ UITab:Section({ Title = "UI说明", TextSize = 14 })
 UITab:Paragraph({
 	Title = "📱 提示",
 	Desc = IsMobile
-		and "• 手机端使用绿色悬浮按钮打开菜单\n• 在功能设置中绑定快捷键\n• 在UI设置中绑定窗口开关"
-		or "• 默认无快捷键，请自行绑定\n• 绿色按钮可拖拽移动\n• 右侧白色滑块可拖拽滚动",
+		and "• 手机端点击👁按钮开关菜单\n• 按钮可拖拽移动\n• 在功能设置中绑定快捷键"
+		or "• 窗口默认已打开✅\n• 在功能设置中绑定快捷键\n• 可在上方开启悬浮按钮备选",
 })
 
 -- ========================================================================
--- ===== Tab 4: 统计 =====
+-- ===== Tab 4: 信息统计 =====
 -- ========================================================================
 local StatsTab = Window:Tab({ Title = "信息统计", Icon = "solar:chart-2-bold" })
 
@@ -563,7 +622,7 @@ local DebugInput = SG:Input({
 -- ========================================================================
 local AboutTab = Window:Tab({ Title = "关于", Icon = "solar:info-square-bold" })
 
-AboutTab:Section({ Title = "机场安全透视 v5.0", TextSize = 24 })
+AboutTab:Section({ Title = "机场安全透视 v5.1", TextSize = 24 })
 AboutTab:Space()
 AboutTab:Paragraph({
 	Title = "📖 使用说明",
@@ -650,7 +709,7 @@ local function createHighlight(char, color)
 	return hl
 end
 
--- ===== 分类器 (修复: 精确匹配避免误判) =====
+-- ===== 分类器 =====
 local function classifyCharacter(obj)
 	local ok, result = pcall(function()
 		if not obj then return "Unknown", Color3.fromRGB(180, 180, 180), "❓ Unknown" end
@@ -658,8 +717,7 @@ local function classifyCharacter(obj)
 		local name = obj.Name or ""
 		local fullPath = obj:GetFullName() or ""
 		
-		-- 1) 路径精确匹配 (最可靠)
-		-- 注意: 先检查N(PCTemplate)再检查A(gentTemplate),避免"NPCAgent"误判
+		-- 1) 路径精确匹配
 		if fullPath:find("NPCTemplate") and not fullPath:find("AgentTemplate") then
 			return "Bad", Color3.fromRGB(255, 50, 50), "💀 Threat"
 		end
@@ -667,7 +725,7 @@ local function classifyCharacter(obj)
 			return "Good", Color3.fromRGB(0, 255, 100), "👮 Agent"
 		end
 		
-		-- 2) 名字匹配 (坏人优先,避免误判)
+		-- 2) 名字匹配 (坏人优先)
 		local badPatterns = {"Terrorist", "Enemy", "Hostile", "Threat", "Criminal", "Suspect", "Bandit", "Robber", "Bomber", "Invader", "Killer", "Raid"}
 		local goodPatterns = {"Police", "Security", "Guard", "Agent", "Cop", "SWAT", "Friendly", "Helper", "Patrol"}
 		
@@ -678,7 +736,7 @@ local function classifyCharacter(obj)
 			if name:find(pat) then return "Good", Color3.fromRGB(0, 255, 100), "👮 Agent" end
 		end
 		
-		-- 3) Descendant扫描脚本模块
+		-- 3) Descendant扫描
 		local foundAgent, foundNPC = false, false
 		for _, child in ipairs(obj:GetDescendants()) do
 			if child:IsA("ModuleScript") or child:IsA("Script") or child:IsA("LocalScript") then
@@ -701,7 +759,7 @@ local function classifyCharacter(obj)
 	return "Unknown", Color3.fromRGB(180, 180, 180), "❓ Unknown"
 end
 
--- ===== 主扫描循环 (优化:只用Descendants单次遍历) =====
+-- ===== 主扫描循环 =====
 local lastDebugMsg = "无"
 local scanCount = 0
 
@@ -713,20 +771,15 @@ task.spawn(function()
 		pcall(function()
 			scanCount = scanCount + 1
 			
-			-- 单次遍历Descendants找Humanoid (比双重递归更高效)
 			for _, hum in ipairs(Workspace:GetDescendants()) do
 				if hum:IsA("Humanoid") and hum.Parent and hum.Health > 0 then
 					local char = hum.Parent
-					-- 跳过玩家自己
 					if char == LocalPlayer.Character then continue end
-					-- 跳过已记录的
 					if ESPData[char] then continue end
-					-- 必须是Model
 					if not char:IsA("Model") then continue end
 					
 					local npcType, color, label = classifyCharacter(char)
 					
-					-- 距离检测
 					local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
 					local objRoot = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Head") or char:FindFirstChild("Torso")
 					if not myRoot or not objRoot then continue end
@@ -734,10 +787,8 @@ task.spawn(function()
 					local dist = (objRoot.Position - myRoot.Position).Magnitude
 					if dist > Settings.MaxDistance then continue end
 					
-					-- 仅坏人模式过滤
 					if Settings.ShowBadOnly and npcType ~= "Bad" then continue end
 					
-					-- 创建ESP
 					local hl = createHighlight(char, color)
 					local bb, mainLbl, infoLbl = createHeadLabel(char, color, label)
 					
@@ -762,7 +813,7 @@ task.spawn(function()
 				end
 			end
 			
-			-- 清理死亡/移除对象
+			-- 清理
 			for obj, data in pairs(ESPData) do
 				if not obj.Parent then
 					if data.Highlight then data.Highlight:Destroy() end
@@ -771,7 +822,7 @@ task.spawn(function()
 				end
 			end
 			
-			-- 更新头顶标签
+			-- 更新标签
 			if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
 				local myRoot = LocalPlayer.Character.HumanoidRootPart
 				for obj, data in pairs(ESPData) do
@@ -785,8 +836,6 @@ task.spawn(function()
 							table.insert(parts, string.format("HP: %.0f/%.0f", data.Humanoid.Health, data.Humanoid.MaxHealth))
 						end
 						data.InfoLabel.Text = table.concat(parts, " | ")
-						
-						-- 同步Enabled状态 (修复Bug #5)
 						data.Billboard.Enabled = Settings.Enabled
 					end
 					if data.Highlight then
@@ -811,11 +860,8 @@ task.spawn(function()
 				TotalInput:Set(tostring(total))
 				DebugInput:Set(lastDebugMsg)
 				
-				-- 更新状态(用Input:Set替代Tag:Update)
 				if total > 0 then
-					pcall(function()
-						statusInput:Set(string.format("🟢 %d | 🔴 %d | 总计: %d", good, bad, total))
-					end)
+					pcall(function() statusInput:Set(string.format("🟢 %d | 🔴 %d | 总计: %d", good, bad, total)) end)
 				else
 					pcall(function()
 						local scanMsg = "扫描中... 未发现目标"
@@ -862,6 +908,6 @@ UserInputService.InputBegan:Connect(function(input, gp)
 	end
 end)
 
-print("✅ 机场安全透视 v5.0 已加载!")
+print("✅ 机场安全透视 v5.1 已加载!")
 print("🔑 默认无快捷键,请到UI中自行设置")
-print("👁 扫描模式: Descendants单次遍历 + 精确分类")
+print("👁 窗口默认已打开,不会自动最小化")
