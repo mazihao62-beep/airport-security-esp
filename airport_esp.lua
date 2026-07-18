@@ -1,5 +1,5 @@
 --[[
-    机场安全透视脚本 v7.0
+    机场安全透视脚本 v8.0
     作者: b站英吉利超入_
     功能: ESP透视 + 好人/坏人识别 + 自定义快捷键
 ]]
@@ -8,9 +8,7 @@
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
-local StarterGui = game:GetService("StarterGui")
 local CoreGui = game:GetService("CoreGui")
-local RunService = game:GetService("RunService")
 
 -- 检测平台
 local IsMobile = false
@@ -29,7 +27,7 @@ local WindowRef = nil
 local FloatingButtonGui = nil
 local Stats = {Good = 0, Bad = 0, Total = 0}
 local Controls = {}
-local Keybinds = {Window = Enum.KeyCode.RightShift, ESP = nil, BadOnly = nil}
+local Keybinds = {}
 local PopupConfirmed = false
 local TabElements = {}
 
@@ -85,7 +83,6 @@ local function isRealPlayer(character)
     for _, p in ipairs(Players:GetPlayers()) do
         if p.Character == character then return true end
     end
-    -- 额外检查本地玩家的角色
     if lp and lp.Character then
         local myRoot = lp.Character:FindFirstChild("HumanoidRootPart") or lp.Character:FindFirstChild("Torso")
         local theirRoot = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Torso")
@@ -102,79 +99,50 @@ local function createESP(character, npcType)
         local color = npcType == "Good" and Color3.fromRGB(0,255,100) or Color3.fromRGB(255,50,50)
         local obj = ESPObjects[character]
         local show = Settings.Enabled and (not Settings.BadOnly or npcType == "Bad")
-        if obj.Highlight then
-            obj.Highlight.FillColor = color
-            obj.Highlight.Enabled = show
-        end
+        if obj.Highlight then obj.Highlight.FillColor = color; obj.Highlight.Enabled = show end
         if obj.Billboard then obj.Billboard.Enabled = show end
         return true
     end
     local root = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Torso") or character:FindFirstChildOfClass("Part")
     if not root then return false end
 
-    -- 距离检查
     local myChar = Players.LocalPlayer and Players.LocalPlayer.Character
     local myRoot = myChar and (myChar:FindFirstChild("HumanoidRootPart") or myChar:FindFirstChild("Torso"))
     if myRoot and root and (root.Position - myRoot.Position).Magnitude > Settings.MaxRange then return false end
 
     local show = Settings.Enabled and (not Settings.BadOnly or npcType == "Bad")
+    local color = npcType == "Good" and Color3.fromRGB(0,255,100) or Color3.fromRGB(255,50,50)
 
     local hl = Instance.new("Highlight")
-    hl.Adornee = character
-    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-    hl.FillTransparency = 0.4
-    hl.OutlineTransparency = 0.2
-    hl.FillColor = npcType == "Good" and Color3.fromRGB(0,255,100) or Color3.fromRGB(255,50,50)
-    hl.OutlineColor = Color3.fromRGB(255,255,255)
-    hl.Enabled = show
-    hl.Parent = CoreGui
+    hl.Adornee = character; hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.FillTransparency = 0.4; hl.OutlineTransparency = 0.2
+    hl.FillColor = color; hl.OutlineColor = Color3.fromRGB(255,255,255)
+    hl.Enabled = show; hl.Parent = CoreGui
 
     local head = character:FindFirstChild("Head") or character:FindFirstChild("Torso") or root
     local bb = Instance.new("BillboardGui")
-    bb.Adornee = head
-    bb.Size = UDim2.new(0,160,0,50)
-    bb.StudsOffset = Vector3.new(0,3,0)
-    bb.AlwaysOnTop = true
-    bb.Enabled = show
-    bb.Parent = CoreGui
-    bb.ClipsDescendants = false
+    bb.Adornee = head; bb.Size = UDim2.new(0,160,0,50); bb.StudsOffset = Vector3.new(0,3,0)
+    bb.AlwaysOnTop = true; bb.Enabled = show; bb.Parent = CoreGui; bb.ClipsDescendants = false
 
     local bg = Instance.new("Frame")
-    bg.Size = UDim2.new(1,0,1,0)
-    bg.BackgroundColor3 = Color3.fromRGB(0,0,0)
-    bg.BackgroundTransparency = 0.4
-    bg.BorderSizePixel = 0
-    bg.Parent = bb
-    local bgc = Instance.new("UICorner")
-    bgc.CornerRadius = UDim.new(0,4)
-    bgc.Parent = bg
+    bg.Size = UDim2.new(1,0,1,0); bg.BackgroundColor3 = Color3.fromRGB(0,0,0)
+    bg.BackgroundTransparency = 0.4; bg.BorderSizePixel = 0; bg.Parent = bb
+    local bgc = Instance.new("UICorner"); bgc.CornerRadius = UDim.new(0,4); bgc.Parent = bg
 
     local lbl = Instance.new("TextLabel")
-    lbl.Size = UDim2.new(1,-4,0.55,0)
-    lbl.Position = UDim2.new(0,2,0,2)
-    lbl.BackgroundTransparency = 1
-    lbl.TextColor3 = npcType == "Good" and Color3.fromRGB(0,255,100) or Color3.fromRGB(255,50,50)
-    lbl.TextScaled = true
-    lbl.Font = Enum.Font.SourceSansBold
-    lbl.Text = npcType == "Good" and "👮 好人" or "💀 坏人"
-    lbl.BorderSizePixel = 0
-    lbl.Parent = bg
+    lbl.Size = UDim2.new(1,-4,0.55,0); lbl.Position = UDim2.new(0,2,0,2)
+    lbl.BackgroundTransparency = 1; lbl.TextColor3 = color
+    lbl.TextScaled = true; lbl.Font = Enum.Font.SourceSansBold
+    lbl.Text = npcType == "Good" and "👮 好人" or "💀 坏人"; lbl.BorderSizePixel = 0; lbl.Parent = bg
 
     local info = Instance.new("TextLabel")
-    info.Size = UDim2.new(1,-4,0.4,0)
-    info.Position = UDim2.new(0,2,0.55,2)
-    info.BackgroundTransparency = 1
-    info.TextColor3 = Color3.fromRGB(255,255,255)
-    info.TextScaled = true
-    info.Font = Enum.Font.SourceSans
-    info.Text = ""
-    info.BorderSizePixel = 0
-    info.Parent = bg
+    info.Size = UDim2.new(1,-4,0.4,0); info.Position = UDim2.new(0,2,0.55,2)
+    info.BackgroundTransparency = 1; info.TextColor3 = Color3.fromRGB(255,255,255)
+    info.TextScaled = true; info.Font = Enum.Font.SourceSans; info.Text = ""; info.BorderSizePixel = 0; info.Parent = bg
 
     ESPObjects[character] = {Highlight=hl, Billboard=bb, Label=lbl, InfoLine=info, Head=head, Root=root}
     if npcType == "Good" then Stats.Good = Stats.Good + 1 else Stats.Bad = Stats.Bad + 1 end
-    Stats.Total = Stats.Total + 1
-    TrackedNPCs[character] = npcType
+    Stats.Total = Stats.Total + 1; TrackedNPCs[character] = npcType
     return true
 end
 
@@ -182,14 +150,12 @@ end
 local function removeESP(character)
     if ESPObjects[character] then
         local obj = ESPObjects[character]
-        pcall(function() obj.Highlight:Destroy() end)
-        pcall(function() obj.Billboard:Destroy() end)
+        pcall(function() obj.Highlight:Destroy() end); pcall(function() obj.Billboard:Destroy() end)
         ESPObjects[character] = nil
         local nt = TrackedNPCs[character]
         if nt == "Good" then Stats.Good = math.max(0, Stats.Good - 1)
         elseif nt == "Bad" then Stats.Bad = math.max(0, Stats.Bad - 1) end
-        Stats.Total = math.max(0, Stats.Total - 1)
-        TrackedNPCs[character] = nil
+        Stats.Total = math.max(0, Stats.Total - 1); TrackedNPCs[character] = nil
     end
 end
 
@@ -213,9 +179,7 @@ local function updateLabels()
             end
             if Settings.ShowHealth then
                 local hum = char:FindFirstChildOfClass("Humanoid")
-                if hum then
-                    table.insert(parts, "HP:" .. math.floor(hum.Health + 0.5) .. "/" .. math.floor(hum.MaxHealth + 0.5))
-                end
+                if hum then table.insert(parts, "HP:" .. math.floor(hum.Health + 0.5) .. "/" .. math.floor(hum.MaxHealth + 0.5)) end
             end
             obj.InfoLine.Text = table.concat(parts, " | ")
         end
@@ -232,47 +196,57 @@ local function updateAllESP()
     end
 end
 
--- ========== 扫描 NPC（核心修复：永远运行，不依赖开关状态） ==========
+-- ========== 扫描 NPC ==========
 local function scanNPCs()
-    if IsScanning then return end
-    IsScanning = true
-
-    local success = pcall(function()
-        -- 第一遍：找 Humanoid
+    if IsScanning then return end; IsScanning = true
+    pcall(function()
         for _, obj in ipairs(Workspace:GetDescendants()) do
-            local humanoid = nil
-            local character = nil
-            if obj:IsA("Humanoid") then
-                humanoid = obj
-                character = obj.Parent
-            end
-            if character and humanoid and not TrackedNPCs[character] then
-                if not isRealPlayer(character) then
-                    local npcType = classifyNPC(character, humanoid)
-                    if npcType then createESP(character, npcType) end
-                end
+            local humanoid, character = nil, nil
+            if obj:IsA("Humanoid") then humanoid = obj; character = obj.Parent end
+            if character and humanoid and not TrackedNPCs[character] and not isRealPlayer(character) then
+                local npcType = classifyNPC(character, humanoid)
+                if npcType then createESP(character, npcType) end
             end
             task.wait()
         end
-        -- 第二遍：找没有Humanoid但带Head的模型
         for _, obj in ipairs(Workspace:GetDescendants()) do
             if obj.Name == "Head" and obj:IsA("BasePart") and not obj:IsA("Tool") then
                 local model = obj.Parent
-                if model and model:IsA("Model") and not TrackedNPCs[model] then
-                    if not isRealPlayer(model) then
-                        local hum = model:FindFirstChildOfClass("Humanoid")
-                        if not hum then
-                            local npcType = classifyNPC(model, nil)
-                            if npcType then createESP(model, npcType) end
-                        end
+                if model and model:IsA("Model") and not TrackedNPCs[model] and not isRealPlayer(model) then
+                    if not model:FindFirstChildOfClass("Humanoid") then
+                        local npcType = classifyNPC(model, nil)
+                        if npcType then createESP(model, npcType) end
                     end
                 end
             end
             task.wait()
         end
     end)
-
     IsScanning = false
+end
+
+-- ========== 美化 UI ==========
+local function beautifyUI()
+    pcall(function()
+        for _, s in ipairs(CoreGui:GetDescendants()) do
+            if s:IsA("ScrollingFrame") then
+                s.ScrollBarThickness = 14
+                s.ScrollBarImageColor3 = Color3.fromRGB(220, 220, 220)
+                s.ScrollBarImageTransparency = 0.1
+            end
+        end
+    end)
+    pcall(function()
+        for _, o in ipairs(CoreGui:GetDescendants()) do
+            if (o:IsA("ImageLabel") or o:IsA("ImageButton")) and o.Size.X.Offset <= 30 and o.Size.X.Offset > 0 then
+                local p = o.Parent
+                if p and p:IsA("Frame") then
+                    o.ImageColor3 = Color3.fromRGB(255, 255, 255)
+                    o.ImageTransparency = 0.1
+                end
+            end
+        end
+    end)
 end
 
 -- ========== 加载 WindUI ==========
@@ -287,7 +261,7 @@ if s and r then
 
     -- ===== Popup 确认弹窗 =====
     WindUI:Popup({
-        Title = "机场安全透视 v7.0",
+        Title = "机场安全透视 v8.0",
         Icon = "info",
         Content = "👁 透视高亮 - Highlight穿墙显示所有NPC\n🔍 自动识别 - 区分好人(绿)与坏人(红)\n🏷 头顶标签 - 显示类型/距离/血量\n🔧 自定义快捷键 - 自由绑定按键\n📱 手机适配 - 支持触屏操作\n\n⚠️ 加载后所有功能默认关闭，需手动开启",
         Buttons = {
@@ -301,11 +275,10 @@ if s and r then
                         Duration = 4, Icon = "bird",
                     })
                 end)
-                -- 立即开始扫描和创建窗口
                 task.spawn(function()
                     createWindow()
                     task.wait(0.3)
-                    scanNPCs()  -- 立即扫一次
+                    scanNPCs()
                 end)
             end, Variant = "Primary" }
         }
@@ -315,14 +288,12 @@ if s and r then
     task.spawn(function()
         while not PopupConfirmed do task.wait(0.5) end
         task.wait(1.5)
+        beautifyUI()
 
-        -- 主扫描循环（核心修复：永远运行，不依赖Settings.Enabled）
+        -- 主扫描循环
         task.spawn(function()
             while true do
-                pcall(function()
-                    cleanESP()
-                    scanNPCs()  -- 始终扫描！
-                end)
+                pcall(function() cleanESP(); scanNPCs() end)
                 task.wait(3)
             end
         end)
@@ -337,7 +308,7 @@ if s and r then
                         TabElements.TotalP:SetTitle("📊 总计: " .. Stats.Total)
                     end
                     if TabElements.ScanI then
-                        TabElements.ScanI:Set({Value = IsScanning and "📡 扫描中..." or "✅ 就绪"})
+                        TabElements.ScanI:Set(IsScanning and "📡 扫描中..." or "✅ 就绪")
                     end
                     updateLabels()
                 end)
@@ -351,25 +322,20 @@ if s and r then
             if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
             local key = input.KeyCode
 
-            -- 窗口开关（默认 RightShift）— 用WindUI的ToggleKey处理
-            -- 这里不需要额外处理，WindUI已接管
-
-            -- 透视开关快捷键
             if Keybinds.ESP and key == Keybinds.ESP then
                 Settings.Enabled = not Settings.Enabled
                 pcall(function()
-                    if Controls.ESPToggle then Controls.ESPToggle:Set({Value = Settings.Enabled}) end
+                    if Controls.ESPToggle then Controls.ESPToggle:Set(Settings.Enabled) end
                 end)
                 updateAllESP()
                 if Settings.Enabled then task.spawn(scanNPCs) end
                 return
             end
 
-            -- 仅坏人模式快捷键
             if Keybinds.BadOnly and key == Keybinds.BadOnly then
                 Settings.BadOnly = not Settings.BadOnly
                 pcall(function()
-                    if Controls.BadOnlyToggle then Controls.BadOnlyToggle:Set({Value = Settings.BadOnly}) end
+                    if Controls.BadOnlyToggle then Controls.BadOnlyToggle:Set(Settings.BadOnly) end
                 end)
                 updateAllESP()
                 return
@@ -382,146 +348,102 @@ if s and r then
         if WindowRef then return end
 
         local ok, win = pcall(function()
-            return WindUI:Window({
-                Title = "机场安全透视 - b站英吉利超入_",
-                Size = Vector2.new(750, 520),
-                ToggleKey = Enum.KeyCode.RightShift,  -- WindUI 管理 RightShift
-                CanClose = true,
-                CanMinimize = false,
+            -- WindUI官方文档: 使用 CreateWindow 不是 Window
+            return WindUI:CreateWindow({
+                Title = "机场安全透视",
+                Author = "b站英吉利超入_",
+                Icon = "shield",
+                Size = UDim2.fromOffset(750, 520),
+                ToggleKey = Enum.KeyCode.RightShift,
+                Theme = "Dark",
                 Resizable = false,
-                Mobile = IsMobile,
+                SideBarWidth = 180,
+                ScrollBarEnabled = true,
+                HideSearchBar = true,
             })
         end)
         if not ok or not win then
-            print("[机场安全透视] 窗口创建失败")
+            print("[机场安全透视] 窗口创建失败，错误:", ok)
             return
         end
         WindowRef = win
 
-        -- 美化UI
-        task.spawn(function()
-            task.wait(0.5)
-            pcall(function()
-                for _, s in ipairs(CoreGui:GetDescendants()) do
-                    if s:IsA("ScrollingFrame") then
-                        s.ScrollBarThickness = 14
-                        s.ScrollBarImageColor3 = Color3.fromRGB(220, 220, 220)
-                        s.ScrollBarImageTransparency = 0.1
-                    end
-                end
-            end)
-            pcall(function()
-                for _, o in ipairs(CoreGui:GetDescendants()) do
-                    if (o:IsA("ImageLabel") or o:IsA("ImageButton")) and o.Size.X.Offset <= 30 and o.Size.X.Offset > 0 then
-                        local p = o.Parent
-                        if p and p:IsA("Frame") then
-                            o.ImageColor3 = Color3.fromRGB(255, 255, 255)
-                            o.ImageTransparency = 0.1
-                        end
-                    end
-                end
-            end)
-        end)
-
-        -- 主控面板
-        local mainTab = win:Tab("主控面板")
-        mainTab:Paragraph("👁 透视控制")
+        -- ===== 主控面板 =====
+        local mainTab = win:Tab({Title="主控面板", Icon="sliders"})
+        mainTab:Paragraph({Title="👁 透视控制"})
         Controls.ESPToggle = mainTab:Toggle({
-            Title = "透视开关",
-            Value = false,
-            Callback = function(v)
-                Settings.Enabled = v
-                updateAllESP()
-                if v then task.spawn(scanNPCs) end
-            end
+            Title = "透视开关", Value = false,
+            Callback = function(v) Settings.Enabled = v; updateAllESP(); if v then task.spawn(scanNPCs) end end
         })
         Controls.BadOnlyToggle = mainTab:Toggle({
-            Title = "仅显示坏人",
-            Value = false,
-            Callback = function(v)
-                Settings.BadOnly = v
-                updateAllESP()
-            end
+            Title = "仅显示坏人", Value = false,
+            Callback = function(v) Settings.BadOnly = v; updateAllESP() end
         })
         mainTab:Divider()
-        mainTab:Paragraph("📐 显示设置")
+        mainTab:Paragraph({Title="📐 显示设置"})
         Controls.DistanceToggle = mainTab:Toggle({
-            Title = "显示距离",
-            Value = false,
+            Title = "显示距离", Value = false,
             Callback = function(v) Settings.ShowDistance = v end
         })
         Controls.HealthToggle = mainTab:Toggle({
-            Title = "显示血量",
-            Value = false,
+            Title = "显示血量", Value = false,
             Callback = function(v) Settings.ShowHealth = v end
         })
         mainTab:Divider()
         Controls.RangeSlider = mainTab:Slider({
             Title = "最大探测距离",
-            Value = 500,
-            Min = 50,
-            Max = 1000,
-            Increment = 50,
+            Step = 50,
+            Value = { Min = 50, Max = 1000, Default = 500 },
             Callback = function(v) Settings.MaxRange = v end
         })
 
-        -- 功能设置
-        local funcTab = win:Tab("功能设置")
-        funcTab:Paragraph("🔑 快捷键设置（点击后按键盘绑定）")
+        -- ===== 功能设置 =====
+        local funcTab = win:Tab({Title="功能设置", Icon="settings"})
+        funcTab:Paragraph({Title="🔑 快捷键设置（点击后按键盘绑定）"})
         Controls.ESPKeybind = funcTab:Keybind({
-            Title = "透视开关快捷键",
-            Value = nil,
+            Title = "透视开关快捷键", Value = "",
             Callback = function(key) Keybinds.ESP = key end
         })
         Controls.BadOnlyKeybind = funcTab:Keybind({
-            Title = "仅坏人模式快捷键",
-            Value = nil,
+            Title = "仅坏人模式快捷键", Value = "",
             Callback = function(key) Keybinds.BadOnly = key end
         })
         funcTab:Divider()
-        funcTab:Paragraph("💡 提示: 窗口快捷键在UI设置中绑定（默认 RightShift）")
+        funcTab:Paragraph({Title="💡 提示", Desc="窗口快捷键在UI设置中绑定（默认 RightShift）"})
 
-        -- UI设置
-        local uiTab = win:Tab("UI设置")
-        uiTab:Paragraph("⚙️ 界面设置")
+        -- ===== UI设置 =====
+        local uiTab = win:Tab({Title="UI设置", Icon="monitor"})
+        uiTab:Paragraph({Title="⚙️ 界面设置"})
         Controls.WindowKeybind = uiTab:Keybind({
-            Title = "窗口开关快捷键",
-            Value = Enum.KeyCode.RightShift,
+            Title = "窗口开关快捷键", Value = "RightShift",
             Callback = function(key) Keybinds.Window = key end
         })
         Controls.FloatingBtnToggle = uiTab:Toggle({
-            Title = "显示悬浮按钮",
-            Value = IsMobile,
-            Callback = function(v)
-                Settings.ShowFloatingButton = v
-                if FloatingButtonGui then FloatingButtonGui.Enabled = v end
-            end
+            Title = "显示悬浮按钮", Value = IsMobile,
+            Callback = function(v) if FloatingButtonGui then FloatingButtonGui.Enabled = v end end
         })
         uiTab:Divider()
-        uiTab:Paragraph("💡 提示: 窗口默认隐藏，按 RightShift 打开")
+        uiTab:Paragraph({Title="💡 提示", Desc="窗口默认隐藏，按 RightShift 打开"})
 
-        -- 信息统计
-        local statsTab = win:Tab("信息统计")
-        TabElements.GoodP = statsTab:Paragraph("🟢 好人: 0")
-        TabElements.BadP = statsTab:Paragraph("🔴 坏人: 0")
-        TabElements.TotalP = statsTab:Paragraph("📊 总计: 0")
+        -- ===== 信息统计 =====
+        local statsTab = win:Tab({Title="信息统计", Icon="bar-chart-3"})
+        TabElements.GoodP = statsTab:Paragraph({Title="🟢 好人: 0"})
+        TabElements.BadP = statsTab:Paragraph({Title="🔴 坏人: 0"})
+        TabElements.TotalP = statsTab:Paragraph({Title="📊 总计: 0"})
         statsTab:Divider()
         TabElements.ScanI = statsTab:Input({
-            Title = "扫描状态",
-            Value = "等待中...",
-            Multiline = false,
-            Locked = true
+            Title = "扫描状态", Value = "等待中...", Locked = true
         })
 
-        -- 关于
-        local aboutTab = win:Tab("关于")
-        aboutTab:Paragraph({Title = "机场安全透视 v7.0", Desc = "用于分辨好人与坏人的透视脚本"})
+        -- ===== 关于 =====
+        local aboutTab = win:Tab({Title="关于", Icon="info"})
+        aboutTab:Paragraph({Title="机场安全透视 v8.0", Desc="用于分辨好人与坏人的透视脚本"})
         aboutTab:Divider()
-        aboutTab:Paragraph({Title = "👤 作者", Desc = "b站英吉利超入_"})
+        aboutTab:Paragraph({Title="👤 作者", Desc="b站英吉利超入_"})
         aboutTab:Divider()
         local usage = IsMobile and "手机: 点击悬浮按钮" or "PC: 按 RightShift 打开菜单"
-        aboutTab:Paragraph({Title = "💡 使用说明", Desc = usage})
-        aboutTab:Paragraph({Title = "⚠️ 提示", Desc = "所有功能默认关闭，请在菜单中手动开启"})
+        aboutTab:Paragraph({Title="💡 使用说明", Desc=usage})
+        aboutTab:Paragraph({Title="⚠️ 提示", Desc="所有功能默认关闭，请在菜单中手动开启"})
         aboutTab:Button({
             Title = "📦 GitHub",
             Callback = function()
@@ -535,28 +457,16 @@ if s and r then
                 task.wait(1)
                 pcall(function()
                     FloatingButtonGui = Instance.new("ScreenGui")
-                    FloatingButtonGui.Name = "AirportESP_Btn"
-                    FloatingButtonGui.Enabled = true
-                    FloatingButtonGui.ResetOnSpawn = false
-                    FloatingButtonGui.Parent = CoreGui
+                    FloatingButtonGui.Name = "AirportESP_Btn"; FloatingButtonGui.Enabled = true
+                    FloatingButtonGui.ResetOnSpawn = false; FloatingButtonGui.Parent = CoreGui
                     local btn = Instance.new("ImageButton")
-                    btn.Size = UDim2.new(0,50,0,50)
-                    btn.Position = UDim2.new(0.9,-25,0.8,-25)
-                    btn.BackgroundColor3 = Color3.fromRGB(0,180,80)
-                    btn.BackgroundTransparency = 0.2
-                    btn.BorderSizePixel = 0
-                    btn.Parent = FloatingButtonGui
-                    local c = Instance.new("UICorner")
-                    c.CornerRadius = UDim.new(0,25)
-                    c.Parent = btn
+                    btn.Size = UDim2.new(0,50,0,50); btn.Position = UDim2.new(0.9,-25,0.8,-25)
+                    btn.BackgroundColor3 = Color3.fromRGB(0,180,80); btn.BackgroundTransparency = 0.2
+                    btn.BorderSizePixel = 0; btn.Parent = FloatingButtonGui
+                    local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0,25); c.Parent = btn
                     local t = Instance.new("TextLabel")
-                    t.Size = UDim2.new(1,0,1,0)
-                    t.BackgroundTransparency = 1
-                    t.Text = "👁"
-                    t.TextScaled = true
-                    t.Font = Enum.Font.SourceSansBold
-                    t.TextColor3 = Color3.fromRGB(255,255,255)
-                    t.Parent = btn
+                    t.Size = UDim2.new(1,0,1,0); t.BackgroundTransparency = 1; t.Text = "👁"
+                    t.TextScaled = true; t.Font = Enum.Font.SourceSansBold; t.TextColor3 = Color3.fromRGB(255,255,255); t.Parent = btn
                     local dragging,dragStart,startPos = false,nil,nil
                     btn.InputBegan:Connect(function(input)
                         if input.UserInputType==Enum.UserInputType.Touch or input.UserInputType==Enum.UserInputType.MouseButton1 then
@@ -572,14 +482,16 @@ if s and r then
                         if input.UserInputType==Enum.UserInputType.Touch or input.UserInputType==Enum.UserInputType.MouseButton1 then dragging=false end
                     end)
                     btn.MouseButton1Click:Connect(function()
-                        -- 手机按钮模拟RightShift切换窗口
+                        if WindowRef then
+                            pcall(function() WindowRef:Toggle() end)
+                        end
                     end)
                 end)
             end)
         end
     end
 
-    print("[机场安全透视] v7.0 已加载 | 作者: b站英吉利超入_")
+    print("[机场安全透视] v8.0 已加载 | 作者: b站英吉利超入_")
 else
     -- ===== WindUI 加载失败，原生模式 =====
     print("[机场安全透视] WindUI 加载失败，使用原生模式")
@@ -589,45 +501,30 @@ else
     task.delay(5, function() msg:Destroy() end)
 
     local btnGui = Instance.new("ScreenGui")
-    btnGui.Name = "AirportESP_Btn"
-    btnGui.ResetOnSpawn = false
-    btnGui.Parent = CoreGui
+    btnGui.Name = "AirportESP_Btn"; btnGui.ResetOnSpawn = false; btnGui.Parent = CoreGui
     local btn = Instance.new("ImageButton")
-    btn.Size = UDim2.new(0,50,0,50)
-    btn.Position = UDim2.new(0.9,-25,0.8,-25)
-    btn.BackgroundColor3 = Color3.fromRGB(0,180,80)
-    btn.BackgroundTransparency = 0.2
-    btn.BorderSizePixel = 0
-    btn.Parent = btnGui
-    local c = Instance.new("UICorner")
-    c.CornerRadius = UDim.new(0,25)
-    c.Parent = btn
+    btn.Size = UDim2.new(0,50,0,50); btn.Position = UDim2.new(0.9,-25,0.8,-25)
+    btn.BackgroundColor3 = Color3.fromRGB(0,180,80); btn.BackgroundTransparency = 0.2; btn.BorderSizePixel = 0; btn.Parent = btnGui
+    local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0,25); c.Parent = btn
     local t = Instance.new("TextLabel")
-    t.Size = UDim2.new(1,0,1,0)
-    t.BackgroundTransparency = 1
-    t.Text = "👁"
-    t.TextScaled = true
-    t.Font = Enum.Font.SourceSansBold
-    t.TextColor3 = Color3.fromRGB(255,255,255)
-    t.Parent = btn
+    t.Size = UDim2.new(1,0,1,0); t.BackgroundTransparency = 1; t.Text = "👁"
+    t.TextScaled = true; t.Font = Enum.Font.SourceSansBold; t.TextColor3 = Color3.fromRGB(255,255,255); t.Parent = btn
 
     btn.MouseButton1Click:Connect(function()
-        Settings.Enabled = not Settings.Enabled
-        updateAllESP()
+        Settings.Enabled = not Settings.Enabled; updateAllESP()
         btn.BackgroundColor3 = Settings.Enabled and Color3.fromRGB(255,50,50) or Color3.fromRGB(0,180,80)
         if Settings.Enabled then task.spawn(scanNPCs) end
     end)
 
-    -- 原生模式也永远运行扫描
     task.spawn(function()
         while true do
-            pcall(function() cleanESP(); scanNPCs() end)  -- 永远扫描！
+            pcall(function() cleanESP(); scanNPCs() end)
             task.wait(3)
         end
     end)
 end
 
--- ===== 保底：无论Popup是否确认，3秒后都开始扫描 =====
+-- ===== 保底扫描 =====
 task.spawn(function()
     task.wait(3)
     if not PopupConfirmed then
