@@ -1,4 +1,4 @@
-# 机场安全透视脚本 🔍
+# 机场安全透视脚本 ✈️
 
 **作者: b站英吉利超入_**
 
@@ -14,11 +14,22 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/mazihao62-beep/airpor
 
 ---
 
+## 🎮 首次使用流程
+
+1. 执行脚本 → Popup弹窗显示功能说明
+2. 点击 **「确认加载」**
+3. 按 **RightShift** 打开菜单（或手机点悬浮按钮 👁）
+4. 在「UI设置」中绑定窗口快捷键
+5. 在「功能设置」中绑定透视快捷键
+6. 在「主控面板」开启透视开关
+
+---
+
 ## 💻 PC 操作
 
 | 操作 | 说明 |
 |------|------|
-| **RightShift** | 打开/关闭菜单 |
+| **RightShift** | 打开/关闭菜单（可修改） |
 | 菜单 → 主控面板 | 开启透视、调整设置 |
 | 菜单 → 功能设置 | 自定义快捷键 |
 
@@ -51,6 +62,7 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/mazihao62-beep/airpor
 | 中文名 (警察/保安/警卫...) | 🥈 |
 | 英文名 (Police/Guard/Agent...) | 🥉 |
 | 路径 (AgentTemplate/NPCTemplate) | 4️⃣ |
+| TeamColor (蓝绿=好人, 红棕=坏人) | 5️⃣ |
 
 ---
 
@@ -71,8 +83,9 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/mazihao62-beep/airpor
 
 | 版本 | 内容 |
 |------|------|
-| **v6.5** | ✅ 修复WindUI加载URL (官方release方式) |
-| | ✅ 修复Popup/Notify API (按官方文档) |
+| **v6.8** | ✅ 弹窗描述详细化 + 移除不存在的方法调用 |
+| v6.7 | Phone 适配 + 完整 WindUI 重构 |
+| v6.5 | 修复WindUI加载URL + Popup/Notify API |
 | v6.4 | 所有功能默认关闭 |
 | v6.3 | 白色滚动条 |
 | v6.2 | Slider圆点修复 |
