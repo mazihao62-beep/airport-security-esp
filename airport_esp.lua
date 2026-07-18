@@ -51,10 +51,8 @@ local Settings = {
 	BoxColor_Good = Color3.fromRGB(0, 255, 100),
 	BoxColor_Bad = Color3.fromRGB(255, 50, 50),
 	BoxColor_Unknown = Color3.fromRGB(255, 255, 255),
-	Thickness = 2,
 }
 
--- ESP对象缓存
 local ESPObjects = {}
 
 -- ===== Tab 1: 主控面板 =====
@@ -63,7 +61,6 @@ local MainTab = Window:Tab({
 	Icon = "solar:home-2-bold",
 })
 
--- 状态分组
 MainTab:Section({
 	Title = "状态控制",
 	TextSize = 18,
@@ -80,21 +77,12 @@ MainTab:Toggle({
 			if esp.Box then esp.Box.Visible = state end
 			if esp.Billboard then esp.Billboard.Enabled = state end
 		end
-		if not state then
-			WindUI:Notify({
-				Title = "透视已关闭",
-				Content = "所有ESP标记已隐藏",
-				Icon = "solar:eye-closed-bold",
-				Duration = 3,
-			})
-		else
-			WindUI:Notify({
-				Title = "透视已开启",
-				Content = "开始扫描目标...",
-				Icon = "solar:eye-bold",
-				Duration = 3,
-			})
-		end
+		WindUI:Notify({
+			Title = state and "透视已开启" or "透视已关闭",
+			Content = state and "开始扫描目标..." or "所有ESP标记已隐藏",
+			Icon = state and "solar:eye-bold" or "solar:eye-closed-bold",
+			Duration = 3,
+		})
 	end,
 })
 
@@ -123,7 +111,6 @@ MainTab:Toggle({
 
 MainTab:Space()
 
--- 信息显示分组
 MainTab:Section({
 	Title = "显示选项",
 	TextSize = 18,
@@ -173,15 +160,28 @@ local StatsTab = Window:Tab({
 	Icon = "solar:chart-2-bold",
 })
 
+-- 使用 Input Locked 方式显示统计数据
 local StatsGroup = StatsTab:Group({})
 
-local Label_GoodCount = StatsGroup:Label({ Title = "🟢 好人数量: 0" })
+local GoodInput = StatsGroup:Input({
+	Title = "🟢 好人",
+	Value = "0",
+	Locked = true,
+})
 StatsGroup:Space()
-local Label_BadCount = StatsGroup:Label({ Title = "🔴 坏人数量: 0" })
+
+local BadInput = StatsGroup:Input({
+	Title = "🔴 坏人",
+	Value = "0",
+	Locked = true,
+})
 StatsGroup:Space()
-local Label_TotalCount = StatsGroup:Label({ Title = "📊 目标总数: 0" })
-StatsGroup:Space()
-local Label_Status = StatsGroup:Label({ Title = "📡 扫描状态: 运行中" })
+
+local TotalInput = StatsGroup:Input({
+	Title = "📊 总数",
+	Value = "0",
+	Locked = true,
+})
 
 -- ===== Tab 3: 关于 =====
 local AboutTab = Window:Tab({
@@ -202,18 +202,9 @@ AboutTab:Section({
 
 AboutTab:Space()
 
-AboutTab:Button({
-	Title = "加入 Discord",
-	Icon = "message-circle",
-	Color = Color3.fromHex("#5865F2"),
-	Callback = function()
-		WindUI:Notify({
-			Title = "Discord",
-			Content = "ftgs development hub",
-			Icon = "message-circle",
-			Duration = 5,
-		})
-	end,
+AboutTab:Paragraph({
+	Title = "使用说明",
+	Desc = "本脚本自动扫描Workspace中的NPC角色，通过名字/路径检测自动区分好人与坏人。\n\nRightShift = 菜单开关\nF4 = 透视开关",
 })
 
 AboutTab:Space()
@@ -233,7 +224,6 @@ AboutTab:Button({
 })
 
 -- ===== ESP渲染系统 =====
-
 local function createESP(character, color, label)
 	local box = Instance.new("BoxHandleAdornment")
 	box.Name = "ESPBox"
@@ -292,7 +282,6 @@ end
 local function classifyCharacter(character)
 	local name = character.Name or ""
 
-	-- 检查父级路径中是否包含AgentTemplate或NPCTemplate
 	local parent = character.Parent
 	while parent do
 		local pName = parent.Name
@@ -304,14 +293,12 @@ local function classifyCharacter(character)
 		parent = parent.Parent
 	end
 
-	-- 通过名字前缀判断
 	if name:match("^Agent") or name:match("Police") or name:match("Guard") or name:match("Security") then
 		return "Good", Settings.BoxColor_Good, "👮 Agent"
 	elseif name:match("^NPC") or name:match("Terrorist") or name:match("Suspect") or name:match("Enemy") or name:match("Hostile") or name:match("Criminal") or name:match("Threat") or name:match("Bad") then
 		return "Bad", Settings.BoxColor_Bad, "💀 Threat"
 	end
 
-	-- 检查Descendants中是否有标识性模块
 	local foundAgent = false
 	local foundNPC = false
 	for _, child in ipairs(character:GetDescendants()) do
@@ -364,7 +351,6 @@ local function updateESP()
 		if npcType == "Bad" then badCount = badCount + 1 end
 		if npcType == "Good" then goodCount = goodCount + 1 end
 
-		-- 距离检查
 		if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
 			local root = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChild("Torso")
 			local myRoot = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
@@ -385,7 +371,6 @@ local function updateESP()
 			ESPObjects[obj].Label.Text = label or ""
 		end
 
-		-- 更新信息文字
 		if ESPObjects[obj] and ESPObjects[obj].Info then
 			local distText = ""
 			local healthText = ""
@@ -409,28 +394,20 @@ local function updateESP()
 		end
 	end
 
-	-- 清理不存在的对象
 	for char, esp in pairs(ESPObjects) do
 		if not char.Parent then
 			removeESP(char)
 		end
 	end
 
-	-- 更新统计UI
-	if Label_GoodCount then
-		Label_GoodCount:Set("🟢 好人数量: " .. goodCount)
-	end
-	if Label_BadCount then
-		Label_BadCount:Set("🔴 坏人数量: " .. badCount)
-	end
-	if Label_TotalCount then
-		Label_TotalCount:Set("📊 目标总数: " .. (goodCount + badCount))
-	end
+	-- 更新统计UI（使用 :Set() 方法）
+	if GoodInput then GoodInput:Set(tostring(goodCount)) end
+	if BadInput then BadInput:Set(tostring(badCount)) end
+	if TotalInput then TotalInput:Set(tostring(goodCount + badCount)) end
 end
 
 -- ===== 主循环 =====
-local connection
-connection = RunService.RenderStepped:Connect(function()
+RunService.RenderStepped:Connect(function()
 	if Settings.Enabled then
 		updateESP()
 	end
