@@ -1,5 +1,5 @@
 --[[
-    机场安全透视脚本 v6.5
+    机场安全透视脚本 v6.6
     作者: b站英吉利超入_
     功能: ESP透视 + 好人/坏人识别 + 自定义快捷键
 ]]
@@ -36,26 +36,26 @@ local PopupConfirmed = false
 -- ========== NPC 分类器 ==========
 local function classifyNPC(character, humanoid)
     local name = character.Name or ""
-    -- 1: NPCType 属性
+    -- 1: NPCType 属性 (NPCSetup.lua)
     local npcType = nil
     if humanoid then pcall(function() npcType = humanoid:GetAttribute("NPCType") end) end
     if npcType == "Agent" then return "Good" end
     if npcType == "Enemy" then return "Bad" end
-    -- 2: 中文
+    -- 2: 中文关键词
     for _, kw in ipairs({"警察","保安","警卫","警","守卫","士兵","军官","长官","巡逻","特工","安全","安保"}) do
         if name:find(kw) then return "Good" end
     end
     for _, kw in ipairs({"恐怖","匪徒","匪","敌人","坏","犯罪","袭击","暴徒","杀手","叛军","武装"}) do
         if name:find(kw) then return "Bad" end
     end
-    -- 3: 英文
+    -- 3: 英文关键词
     for _, kw in ipairs({"Police","Security","Guard","Agent","Officer","Sheriff","Soldier","Patrol","Cop"}) do
         if name:find(kw,1,true) then return "Good" end
     end
     for _, kw in ipairs({"Terrorist","Enemy","Hostile","Criminal","Threat","Suspect","Bandit","Mercenary"}) do
         if name:find(kw,1,true) then return "Bad" end
     end
-    -- 4: 路径
+    -- 4: 路径检测
     local path = ""
     pcall(function() path = character:GetFullName() end)
     if path:find("AgentTemplate") then return "Good" end
@@ -68,7 +68,7 @@ local function classifyNPC(character, humanoid)
             if tc.Name:find("Bright red") or tc.Name:find("Bright orange") or tc.Name:find("Brown") then return "Bad" end
         end
     end
-    -- 6: 工具
+    -- 6: 工具检测
     local tool = character:FindFirstChildOfClass("Tool")
     if tool then
         local tn = tool.Name
@@ -90,6 +90,8 @@ end
 local function createESP(character, npcType)
     if not character or not character.Parent then return end
     if isRealPlayer(character) then return end
+    
+    -- 已有则更新颜色
     if ESPObjects[character] then
         local color = npcType == "Good" and Color3.fromRGB(0,255,100) or Color3.fromRGB(255,50,50)
         local obj = ESPObjects[character]
@@ -97,29 +99,37 @@ local function createESP(character, npcType)
         if obj.Billboard then obj.Billboard.Enabled = Settings.Enabled end
         return
     end
+    
+    -- 找根部件
     local root = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Torso") or character:FindFirstChildOfClass("Part")
     if not root then return end
+    
+    -- 范围检查
     local myChar = Players.LocalPlayer and Players.LocalPlayer.Character
     local myRoot = myChar and (myChar:FindFirstChild("HumanoidRootPart") or myChar:FindFirstChild("Torso"))
     if myRoot and root and (root.Position - myRoot.Position).Magnitude > Settings.MaxRange then return end
     
+    -- Highlight 高亮
     local hl = Instance.new("Highlight")
     hl.Adornee = character; hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
     hl.FillTransparency = 0.4; hl.OutlineTransparency = 0.2
     hl.FillColor = npcType == "Good" and Color3.fromRGB(0,255,100) or Color3.fromRGB(255,50,50)
     hl.OutlineColor = Color3.fromRGB(255,255,255); hl.Enabled = Settings.Enabled; hl.Parent = CoreGui
     
+    -- 头顶标签
     local head = character:FindFirstChild("Head") or character:FindFirstChild("Torso") or root
     local bb = Instance.new("BillboardGui")
     bb.Adornee = head; bb.Size = UDim2.new(0,160,0,50); bb.StudsOffset = Vector3.new(0,3,0)
     bb.AlwaysOnTop = true; bb.Enabled = Settings.Enabled; bb.Parent = CoreGui
     
+    -- 类型标签
     local lbl = Instance.new("TextLabel")
     lbl.Size = UDim2.new(1,0,0.6,0); lbl.BackgroundColor3 = Color3.fromRGB(0,0,0); lbl.BackgroundTransparency = 0.5
     lbl.TextColor3 = npcType == "Good" and Color3.fromRGB(0,255,100) or Color3.fromRGB(255,50,50)
     lbl.TextScaled = true; lbl.Font = Enum.Font.SourceSansBold
     lbl.Text = npcType == "Good" and "👮 好人" or "💀 坏人"; lbl.BorderSizePixel = 0; lbl.Parent = bb
     
+    -- 信息行
     local info = Instance.new("TextLabel")
     info.Size = UDim2.new(1,0,0.4,0); info.Position = UDim2.new(0,0,0.6,0)
     info.BackgroundColor3 = Color3.fromRGB(0,0,0); info.BackgroundTransparency = 0.5
@@ -151,7 +161,7 @@ local function cleanESP()
     end
 end
 
--- ========== 更新标签 ==========
+-- ========== 更新头顶标签 ==========
 local function updateLabels()
     local myChar = Players.LocalPlayer and Players.LocalPlayer.Character
     local myRoot = myChar and (myChar:FindFirstChild("HumanoidRootPart") or myChar:FindFirstChild("Torso"))
@@ -170,7 +180,7 @@ local function updateLabels()
     end
 end
 
--- ========== 更新状态 ==========
+-- ========== 更新高亮状态 ==========
 local function updateAllESP()
     for _,obj in pairs(ESPObjects) do
         if obj.Highlight then obj.Highlight.Enabled = Settings.Enabled end
@@ -188,7 +198,7 @@ local function updateBadOnlyMode()
     end
 end
 
--- ========== 扫描 ==========
+-- ========== 扫描 NPC ==========
 local function scanNPCs()
     if IsScanning then return end; IsScanning = true
     pcall(function()
@@ -201,6 +211,7 @@ local function scanNPCs()
             end
             task.wait()
         end
+        -- 第二遍: 找只有 Head 但没有 Humanoid 的角色
         for _, obj in ipairs(Workspace:GetDescendants()) do
             if obj.Name == "Head" and obj:IsA("BasePart") and not obj:IsA("Tool") then
                 local model = obj.Parent
@@ -217,7 +228,7 @@ local function scanNPCs()
     IsScanning = false
 end
 
--- ========== 美化 ==========
+-- ========== 美化 UI (滚动条 + 滑块圆点) ==========
 local function beautifyUI()
     pcall(function()
         for _, s in ipairs(CoreGui:GetDescendants()) do
@@ -232,7 +243,10 @@ local function beautifyUI()
         for _, o in ipairs(CoreGui:GetDescendants()) do
             if (o:IsA("ImageLabel") or o:IsA("ImageButton")) and o.Size.X.Offset <= 30 and o.Size.X.Offset > 0 then
                 local p = o.Parent
-                if p and p:IsA("Frame") then o.ImageColor3 = Color3.fromRGB(255,255,255); o.ImageTransparency = 0.1 end
+                if p and p:IsA("Frame") then
+                    o.ImageColor3 = Color3.fromRGB(255,255,255)
+                    o.ImageTransparency = 0.1
+                end
             end
         end
     end)
@@ -243,7 +257,7 @@ local WindUI = nil
 local LoadSuccess = false
 
 local s, r = pcall(function()
-    return loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
+    return loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()
 end)
 
 if s and r then
@@ -252,7 +266,7 @@ if s and r then
     
     -- Popup 确认弹窗
     WindUI:Popup({
-        Title = "机场安全透视 v6.5",
+        Title = "机场安全透视 v6.6",
         Icon = "info",
         Content = "是否加载透视脚本？",
         Buttons = {
@@ -277,7 +291,7 @@ if s and r then
         task.wait(1.5)
         beautifyUI()
         
-        -- 主循环
+        -- 主扫描循环
         task.spawn(function()
             while true do
                 pcall(function() cleanESP(); if Settings.Enabled then scanNPCs() end end)
@@ -285,7 +299,7 @@ if s and r then
             end
         end)
         
-        -- 快捷键
+        -- 快捷键监听
         task.spawn(function()
             while true do
                 local input = UserInputService.InputBegan:Wait()
@@ -325,6 +339,7 @@ if s and r then
         })
         WindowRef = win
         
+        -- 主控面板
         local mainTab = win:Tab("主控面板")
         mainTab:Paragraph("👁 透视控制")
         Controls.ESPToggle = mainTab:Toggle({Title="透视开关", Value=false, Callback=function(v) Settings.Enabled=v; updateAllESP(); if not v then updateBadOnlyMode() end end})
@@ -336,6 +351,7 @@ if s and r then
         mainTab:Divider()
         Controls.RangeSlider = mainTab:Slider({Title="最大探测距离", Value=500, Min=50, Max=1000, Increment=50, Callback=function(v) Settings.MaxRange=v end})
         
+        -- 功能设置
         local funcTab = win:Tab("功能设置")
         funcTab:Paragraph("🔑 快捷键设置（点击后按键盘绑定）")
         Controls.ESPKeybind = funcTab:Keybind({Title="透视开关快捷键", Value=nil, Callback=function(key) Keybinds.ESP=key; Settings.ESPKey=key end})
@@ -343,6 +359,7 @@ if s and r then
         funcTab:Divider()
         funcTab:Paragraph("💡 提示: 在UI设置中可绑定窗口开关快捷键")
         
+        -- UI设置
         local uiTab = win:Tab("UI设置")
         uiTab:Paragraph("⚙️ 界面设置")
         Controls.WindowKeybind = uiTab:Keybind({Title="窗口开关快捷键", Value=Enum.KeyCode.RightShift, Callback=function(key) Keybinds.Window=key; Settings.WindowKey=key; pcall(function() win:Update({ToggleKey=key}) end) end})
@@ -350,17 +367,18 @@ if s and r then
         uiTab:Divider()
         uiTab:Paragraph("💡 提示: 窗口默认隐藏，按 RightShift 打开")
         
+        -- 信息统计
         local statsTab = win:Tab("信息统计")
         local goodP = statsTab:Paragraph("🟢 好人: 0")
         local badP = statsTab:Paragraph("🔴 坏人: 0")
         local totalP = statsTab:Paragraph("📊 总计: 0")
         statsTab:Divider()
         local scanI = statsTab:Input({Title="扫描状态", Value="等待中...", Multiline=false, Locked=true})
-        statsTab:Divider()
         local debugI = statsTab:Input({Title="最近发现", Value="无", Multiline=false, Locked=true})
         
+        -- 关于
         local aboutTab = win:Tab("关于")
-        aboutTab:Paragraph({Title="机场安全透视 v6.5", Desc="用于分辨好人与坏人的透视脚本"})
+        aboutTab:Paragraph({Title="机场安全透视 v6.6", Desc="用于分辨好人与坏人的透视脚本"})
         aboutTab:Divider()
         aboutTab:Paragraph({Title="👤 作者", Desc="b站英吉利超入_"})
         aboutTab:Divider()
@@ -368,7 +386,7 @@ if s and r then
         aboutTab:Paragraph({Title="⚠️ 提示", Desc="所有功能默认关闭，请在菜单中手动开启"})
         aboutTab:Button({Title="📦 GitHub", Callback=function() pcall(function() WindUI:Notify({Title="仓库地址", Content="github.com/mazihao62-beep/airport-security-esp", Duration=3}) end) end})
         
-        -- 更新统计
+        -- 统计更新循环
         task.spawn(function()
             while true do
                 pcall(function()
@@ -423,7 +441,7 @@ if s and r then
         end
     end
 else
-    -- ========== 原生模式 ==========
+    -- ========== 原生模式 (WindUI 加载失败) ==========
     LoadSuccess = false
     local msg = Instance.new("Message")
     msg.Text = "⚠️ WindUI 加载失败，使用原生模式 | 按 F4 开关透视"
@@ -461,4 +479,4 @@ else
     end)
 end
 
-print("[机场安全透视] v6.5 已加载 | 作者: b站英吉利超入_")
+print("[机场安全透视] v6.6 已加载 | 作者: b站英吉利超入_")
