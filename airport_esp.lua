@@ -1,8 +1,8 @@
 --[[
-    机场安全透视脚本 v11.1
+    机场安全透视脚本 v11.2
     作者: b站英吉利超入_
     功能: ESP透视 + 好人/坏人识别 + 主题系统 + 粒子背景 + 增强毛玻璃
-    更新: 粒子系统采用v1.1方案(范围约束+缓慢反弹+主题色适配)
+    更新: 粒子系统大修 - 50粒子(4-8px) / 紧约束0.18~0.78 / 颜色直接取WindUI主色
 ]]
 
 -- ========== 服务 ==========
@@ -21,7 +21,7 @@ local Settings = {
     MaxRange = 500, Particles = true, CurrentTheme = "Dark",
 }
 
--- ========== 主题色映射（与WindUI内置16主题对应）==========
+-- ========== 主题色映射（备用方案）==========
 local ThemeColors = {
     Dark = Color3.fromRGB(100, 180, 255),
     Light = Color3.fromRGB(80, 140, 200),
@@ -55,6 +55,7 @@ local TabElements = {}
 local ConfigName = "default"
 local DebugLog = {}
 local ParticleRunning = false
+local Particles = {} -- 存储粒子引用，用于颜色更新
 
 local function debugPrint(msg)
     table.insert(DebugLog, msg)
@@ -62,15 +63,33 @@ local function debugPrint(msg)
     print("[ESP调试] " .. msg)
 end
 
--- ========== 粒子背景系统（v1.1方案）==========
+-- ========== 粒子背景系统 v11.2 ==========
+--  改进：
+--    1. 50个粒子（更密集）
+--    2. 尺寸4~8px（更大更明显）
+--    3. 紧约束0.18~0.78（粒子不飘出窗口区域）
+--    4. 颜色优先取 WindUI.Theme.Primary（切换主题后实时更新）
+--    5. 存储粒子引用表，颜色更新直接操作引用而非搜索子对象
+-- ==========================================
 local function getParticleColor()
+    -- 1. 优先取 WindUI 当前主题主色（最可靠，实时对应实际主题）
+    local primary = nil
+    pcall(function()
+        if WindUI and WindUI.Theme and WindUI.Theme.Primary then
+            primary = WindUI.Theme.Primary
+        end
+    end)
+    if primary then return primary end
+    -- 2. 备选：主题名映射
     local themeName = Settings.CurrentTheme or "Dark"
     if ThemeColors[themeName] then return ThemeColors[themeName] end
+    -- 3. 最后默认蓝色
     return Color3.fromRGB(100, 180, 255)
 end
 
 local function createParticles()
     if ParticleGui then pcall(function() ParticleGui:Destroy() end); ParticleGui = nil end
+    Particles = {}
     if not Settings.Particles then return end
 
     pcall(function()
@@ -79,24 +98,31 @@ local function createParticles()
         ParticleGui.ResetOnSpawn = false; ParticleGui.DisplayOrder = -999
         ParticleGui.IgnoreGuiInset = true; ParticleGui.Parent = CoreGui
 
-        local numParticles = 25; local particles = {}
+        local numParticles = 50
         local particleColor = getParticleColor()
 
         for i = 1, numParticles do
             local dot = Instance.new("Frame")
-            local size = math.random(2, 4)
+            local size = math.random(4, 8)
             dot.Size = UDim2.new(0, size, 0, size)
-            dot.Position = UDim2.new(0.08 + math.random() * 0.84, 0, 0.08 + math.random() * 0.84, 0)
+            -- 紧约束范围，确保粒子在窗口常见区域内
+            dot.Position = UDim2.new(
+                0.18 + math.random() * 0.60, 0,
+                0.10 + math.random() * 0.55, 0
+            )
             dot.BackgroundColor3 = particleColor
             dot.BackgroundTransparency = 0.4 + math.random() * 0.4
             dot.BorderSizePixel = 0; dot.Parent = ParticleGui
             local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 10); c.Parent = dot
 
             local angle = math.random() * 6.28; local speed = 0.0005 + math.random() * 0.0015
-            table.insert(particles, {
+            local pData = {
                 Frame = dot, Vx = math.cos(angle) * speed, Vy = math.sin(angle) * speed,
-                Phase = math.random() * 6.28, SizeBase = size, MinBound = 0.06, MaxBound = 0.94,
-            })
+                Phase = math.random() * 6.28, SizeBase = size,
+                MinBoundX = 0.18, MaxBoundX = 0.78,
+                MinBoundY = 0.08, MaxBoundY = 0.68,
+            }
+            table.insert(Particles, pData)
         end
 
         ParticleRunning = true
@@ -105,14 +131,15 @@ local function createParticles()
             while ParticleRunning and ParticleGui and ParticleGui.Parent do
                 time = time + 0.03
                 pcall(function()
-                    for _, p in ipairs(particles) do
+                    for _, p in ipairs(Particles) do
                         if not p.Frame or not p.Frame.Parent then continue end
                         local x = p.Frame.Position.X.Scale + p.Vx
                         local y = p.Frame.Position.Y.Scale + p.Vy
-                        if x > p.MaxBound then x = p.MaxBound; p.Vx = -p.Vx + (math.random()-0.5)*0.0002
-                        elseif x < p.MinBound then x = p.MinBound; p.Vx = -p.Vx + (math.random()-0.5)*0.0002 end
-                        if y > p.MaxBound then y = p.MaxBound; p.Vy = -p.Vy + (math.random()-0.5)*0.0002
-                        elseif y < p.MinBound then y = p.MinBound; p.Vy = -p.Vy + (math.random()-0.5)*0.0002 end
+                        -- 边界平滑反弹（带随机扰动避免卡边）
+                        if x > p.MaxBoundX then x = p.MaxBoundX; p.Vx = -p.Vx + (math.random()-0.5)*0.0002
+                        elseif x < p.MinBoundX then x = p.MinBoundX; p.Vx = -p.Vx + (math.random()-0.5)*0.0002 end
+                        if y > p.MaxBoundY then y = p.MaxBoundY; p.Vy = -p.Vy + (math.random()-0.5)*0.0002
+                        elseif y < p.MinBoundY then y = p.MinBoundY; p.Vy = -p.Vy + (math.random()-0.5)*0.0002 end
                         p.Frame.Position = UDim2.new(x, 0, y, 0)
                         p.Frame.BackgroundTransparency = 0.4 + math.sin(time * 0.8 + p.Phase) * 0.25
                         local s = math.max(1, p.SizeBase + math.sin(time + p.Phase) * 0.8)
@@ -125,12 +152,15 @@ local function createParticles()
     end)
 end
 
+-- 更新粒子颜色 - 直接操作存储的引用表，不再搜索子对象
 local function updateParticleColor()
     local color = getParticleColor()
-    if not ParticleGui then return end
+    if not color or #Particles == 0 then return end
     pcall(function()
-        for _, child in ipairs(ParticleGui:GetChildren()) do
-            if child:IsA("Frame") then child.BackgroundColor3 = color end
+        for _, p in ipairs(Particles) do
+            if p.Frame and p.Frame.Parent then
+                p.Frame.BackgroundColor3 = color
+            end
         end
     end)
 end
@@ -138,6 +168,7 @@ end
 local function destroyParticles()
     ParticleRunning = false
     if ParticleGui then pcall(function() ParticleGui:Destroy() end); ParticleGui = nil end
+    Particles = {}
 end
 
 -- ========== NPC 分类器 ==========
@@ -157,24 +188,18 @@ local function classifyNPC(character, humanoid)
     local path = ""
     pcall(function() path = character:GetFullName() end)
 
-    local debugInfo = {Name = name, Path = path, humanoid = humanoid ~= nil}
-
     if humanoid then
         local attrs = getAllAttributes(humanoid)
-        debugInfo.HumanoidAttributes = attrs
         for k, v in pairs(attrs) do
             debugPrint(string.format("  属性: Humanoid.%s = %s", k, tostring(v)))
         end
     end
     local charAttrs = getAllAttributes(character)
-    debugInfo.CharacterAttributes = charAttrs
     for k, v in pairs(charAttrs) do
         debugPrint(string.format("  属性: Character.%s = %s", k, tostring(v)))
     end
 
-    local root = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Torso")
     local tool = character:FindFirstChildOfClass("Tool")
-
     debugPrint(string.format("检测到: %s | 路径: %s", name, path))
 
     -- 1. 属性检测
@@ -187,10 +212,10 @@ local function classifyNPC(character, humanoid)
             local vs = tostring(val):lower()
             debugPrint(string.format("  属性[%s] = %s", attrName, tostring(val)))
             for _, good in ipairs({"agent", "good", "friendly", "ally", "police", "friend", "blue", "guard", "clean"}) do
-                if vs:find(good) then return "Good" end
+                if vs:find(good) then debugPrint("  → 属性好人"); return "Good" end
             end
             for _, bad in ipairs({"enemy", "bad", "hostile", "terrorist", "criminal", "foe", "enem", "red", "danger"}) do
-                if vs:find(bad) then return "Bad" end
+                if vs:find(bad) then debugPrint("  → 属性坏人"); return "Bad" end
             end
         end
     end
@@ -399,19 +424,6 @@ local function scanNPCs()
             end
             task.wait()
         end
-        for _, obj in ipairs(Workspace:GetDescendants()) do
-            if obj.Name == "Head" and obj:IsA("BasePart") and not obj:IsA("Tool") then
-                local model = obj.Parent
-                if model and model:IsA("Model") and not TrackedNPCs[model] and not isRealPlayer(model) then
-                    if not model:FindFirstChildOfClass("Humanoid") then
-                        debugPrint(string.format("发现NPC (无Humanoid): %s", model.Name))
-                        local npcType = classifyNPC(model, nil)
-                        if npcType then createESP(model, npcType) end
-                    end
-                end
-            end
-            task.wait()
-        end
     end)
     debugPrint(string.format("===== 扫描结束: 好人%d 坏人%d =====", Stats.Good, Stats.Bad))
     IsScanning = false
@@ -441,9 +453,9 @@ if s and r then
 
     -- Popup
     WindUI:Popup({
-        Title = "机场安全透视 v11.1",
+        Title = "机场安全透视 v11.2",
         Icon = "solar:info-square-bold",
-        Content = "👁 透视高亮 - Highlight穿墙显示所有NPC\n🔍 智能识别 - 多维度区分好人(绿)与坏人(红)\n🏷 头顶标签 - 显示类型/距离/血量\n🔧 自定义快捷键 - 自由绑定按键\n💾 配置保存 - 自动保存/读取设置\n🎨 主题系统 - 16种内置主题 + 自定义调色\n✨ 粒子背景 - 动态浮动粒子(范围约束+主题色)\n🌀 增强毛玻璃 - Acrylic+透明叠加\n\n⚠️ 加载后所有功能默认关闭，需手动开启",
+        Content = "👁 透视高亮 - Highlight穿墙显示所有NPC\n🔍 智能识别 - 多维度区分好人(绿)与坏人(红)\n🏷 头顶标签 - 显示类型/距离/血量\n🔧 自定义快捷键 - 自由绑定按键\n💾 配置保存 - 自动保存/读取设置\n🎨 主题系统 - 16种内置主题 + 自定义调色\n✨ 粒子背景 - 50粒子(更大更密)紧约束窗口内飘浮\n🌀 增强毛玻璃 - Acrylic+透明叠加\n\n⚠️ 加载后所有功能默认关闭，需手动开启",
         Buttons = {
             { Title = "取消", Callback = function() end, Variant = "Tertiary" },
             { Title = "确认加载", Icon = "solar:arrow-right-bold", Callback = function()
@@ -657,7 +669,7 @@ if s and r then
             end
         })
         uiTab:Divider()
-        uiTab:Paragraph({Title="💡 提示", Desc="粒子背景 + 毛玻璃 + 透明背景叠加效果最佳\n粒子仅在有内容的区域飘浮，不会飘出窗口外"})
+        uiTab:Paragraph({Title="💡 提示", Desc="粒子背景 + 毛玻璃 + 透明背景叠加效果最佳\n50个粒子在窗口区域内飘浮"})
 
         -- ===== 信息统计 =====
         local statsTab = win:Tab({Title="信息统计", Icon="solar:chart-bold"})
@@ -763,7 +775,7 @@ if s and r then
 
         -- ===== 关于 =====
         local aboutTab = win:Tab({Title="关于", Icon="solar:info-square-bold"})
-        aboutTab:Paragraph({Title="机场安全透视 v11.1", Desc="用于分辨好人与坏人的透视脚本"})
+        aboutTab:Paragraph({Title="机场安全透视 v11.2", Desc="用于分辨好人与坏人的透视脚本"})
         aboutTab:Divider()
         aboutTab:Paragraph({Title="👤 作者", Desc="b站英吉利超入_"})
         aboutTab:Divider()
@@ -771,9 +783,6 @@ if s and r then
         aboutTab:Paragraph({Title="💡 使用说明", Desc=usage})
         aboutTab:Paragraph({Title="⚠️ 提示", Desc="所有功能默认关闭，请在菜单中手动开启"})
         aboutTab:Paragraph({Title="✨ 高级功能", Desc="配置保存 | 16主题 | 粒子背景 | 毛玻璃 | 调试面板"})
-        aboutTab:Button({Title="📦 GitHub", Callback=function()
-            pcall(function() WindUI:Notify({Title="仓库地址", Content="github.com/mazihao62-beep/airport-security-esp", Duration=3}) end)
-        end})
 
         -- 手机悬浮按钮
         if IsMobile then
@@ -813,15 +822,13 @@ if s and r then
         end
     end
 
-    print("[机场安全透视] v11.1 已加载 | 作者: b站英吉利超入_")
+    print("[机场安全透视] v11.2 已加载 | 作者: b站英吉利超入_")
 else
-    -- WindUI 加载失败，原生模式
     print("[机场安全透视] WindUI 加载失败，使用原生模式")
     local msg = Instance.new("Message")
     msg.Text = "⚠️ WindUI 加载失败，使用原生模式 | 点击绿色按钮开关透视"
     msg.Parent = Workspace
     task.delay(5, function() msg:Destroy() end)
-
     local btnGui = Instance.new("ScreenGui")
     btnGui.Name = "AirportESP_Btn"; btnGui.ResetOnSpawn = false; btnGui.Parent = CoreGui
     local btn = Instance.new("ImageButton")
@@ -831,13 +838,11 @@ else
     local t = Instance.new("TextLabel")
     t.Size = UDim2.new(1,0,1,0); t.BackgroundTransparency = 1; t.Text = "👁"
     t.TextScaled = true; t.Font = Enum.Font.SourceSansBold; t.TextColor3 = Color3.fromRGB(255,255,255); t.Parent = btn
-
     btn.MouseButton1Click:Connect(function()
         Settings.Enabled = not Settings.Enabled; updateAllESP()
         btn.BackgroundColor3 = Settings.Enabled and Color3.fromRGB(255,50,50) or Color3.fromRGB(0,180,80)
         if Settings.Enabled then task.spawn(scanNPCs) end
     end)
-
     task.spawn(function()
         while true do
             pcall(function() cleanESP(); scanNPCs() end)
