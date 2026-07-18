@@ -1,5 +1,6 @@
 --[[
 	机场安全透视脚本 v5.1 (Airport Security ESP)
+	作者: b站英吉利超入_
 	
 	更新日志:
 	v5.1 - 修复窗口闪一下后自动最小化
@@ -283,7 +284,7 @@ local ESPData = {}
 
 local Window = WindUI:CreateWindow({
 	Title = "机场安全透视",
-	Author = "v5.1",
+	Author = "b站英吉利超入_",
 	Folder = "airport_security_esp",
 	Icon = "solar:shield-warning-bold",
 	Theme = "Dark",
@@ -375,9 +376,7 @@ local windowVisible = true
 OpenBtn.MouseButton1Click:Connect(function()
 	windowVisible = not windowVisible
 	if windowVisible then
-		-- TODO: 显示窗口 (WindUI可能没有公开的show方法,我们控制其父级)
 		pcall(function()
-			-- 尝试通过设置父级ScreenGui的Enabled或找窗口容器
 			local root = Window._Object or Window.Window or Window.Instance
 			if root and root.Parent then
 				root.Parent.Parent = CoreGui
@@ -623,6 +622,11 @@ local DebugInput = SG:Input({
 local AboutTab = Window:Tab({ Title = "关于", Icon = "solar:info-square-bold" })
 
 AboutTab:Section({ Title = "机场安全透视 v5.1", TextSize = 24 })
+AboutTab:Space()
+AboutTab:Paragraph({
+	Title = "👤 作者",
+	Desc = "作者: b站英吉利超入_",
+})
 AboutTab:Space()
 AboutTab:Paragraph({
 	Title = "📖 使用说明",
