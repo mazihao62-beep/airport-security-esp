@@ -1,13 +1,12 @@
 --[[
-	机场安全透视脚本 v5.3 (Airport Security ESP)
+	机场安全透视脚本 v5.4 (Airport Security ESP)
 	作者: b站英吉利超入_
 	
 	更新日志:
+	v5.4 - 修复信息统计文字错乱问题
+	  🐛 问题: Input元素堆叠导致标题和输入框文字糊在一起
+	  🔧 方案: 改用Paragraph展示统计数据,每行独立显示,干净整洁
 	v5.3 - 修复Slider滑块不可见 + 替换原生通知为WindUI通知
-	  🐛 问题1: Slider的拖拽滑块在深色主题下看不见
-	  🔧 方案: 创建后自动找到Slider的Thumb并设为白色+亮光
-	  🐛 问题2: 加载成功提示用了Roblox原生通知
-	  🔧 方案: 替换为WindUI:Notify()
 	v5.2 - 默认RightShift开关窗口,彻底解决闪烁问题
 	v5.1 - 修复窗口闪一下后自动最小化
 	v5.0 - 自定义快捷键系统 + 全面Bug修复
@@ -178,7 +177,7 @@ if not Success or not WindUI then
 		end
 	end)
 	
-	print("✅ 机场安全ESP v5.3 (原生模式) 已加载")
+	print("✅ 机场安全ESP v5.4 (原生模式) 已加载")
 	return
 end
 
@@ -193,7 +192,7 @@ local loadConfirmed = false
 local popupClosed = false
 
 WindUI:Popup({
-	Title = "🛡️ 机场安全透视 v5.3",
+	Title = "🛡️ 机场安全透视 v5.4",
 	Icon = "solar:shield-warning-bold",
 	Content = "是否加载机场安全透视脚本？\n\n主要功能：\n• 自动识别好人/坏人\n• 透视穿墙高亮\n• 头顶标签显示\n• 自定义快捷键\n\n按 RightShift 打开菜单",
 	Buttons = {
@@ -244,7 +243,7 @@ local IsMobile = pcall(function()
 	return UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 end) and UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled or false
 
--- ===== 通知 (v5.3: 改为纯WindUI通知) =====
+-- ===== 通知 =====
 WindUI:Notify({
 	Title = "✅ 已确认加载",
 	Content = "按 RightShift 打开菜单 | 在功能设置中绑定快捷键",
@@ -356,7 +355,6 @@ end
 -- ===== 白色粗滚动条 + 滑块美化 =====
 task.spawn(function()
 	task.wait(2)
-	-- 先找滚动条
 	for i = 1, 30 do
 		task.wait(0.1)
 		local found = false
@@ -371,7 +369,6 @@ task.spawn(function()
 							desc.VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar
 							found = true
 						end
-						-- 也找Slider的Thumb并设为白色
 						if desc:IsA("ImageButton") or desc:IsA("ImageLabel") then
 							local parentName = desc.Parent and desc.Parent.Name or ""
 							if parentName:find("Thumb") or desc.Name:find("Thumb") then
@@ -389,7 +386,6 @@ task.spawn(function()
 					desc.VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar
 					found = true
 				end
-				-- Slider Thumb
 				if desc:IsA("ImageButton") or desc:IsA("ImageLabel") then
 					local parentName = desc.Parent and desc.Parent.Name or ""
 					if parentName:find("Thumb") or desc.Name:find("Thumb") then
@@ -401,28 +397,22 @@ task.spawn(function()
 		if found then break end
 	end
 	
-	-- 等UI完整渲染后再扫一遍找Slider Thumb
 	task.wait(1)
 	pcall(function()
 		local rootObj = Window._Object or Window.Window or Window.Instance
 		if rootObj then
 			for _, desc in ipairs(rootObj:GetDescendants()) do
-				-- 找所有可能作为Slider Thumb的ImageButton
 				if desc:IsA("ImageButton") then
 					local p = desc.Parent
 					if p and p:IsA("Frame") and p.Parent then
-						-- 检查是否是Slider结构 (有Track, Range, Thumb等)
 						local gp = p.Parent
 						if gp and gp:IsA("Frame") then
-							-- 尝试让Thumb变成白色发光的圆点
 							desc.ImageColor3 = Color3.fromRGB(255, 255, 255)
 							desc.ImageTransparency = 0
-							-- 加个发光效果
 							desc.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 						end
 					end
 				end
-				-- 也找ImageLabel
 				if desc:IsA("ImageLabel") then
 					local name = desc.Name
 					if name:find("Thumb") or name:find("thumb") or name:find("Slider") or name:find("slider") then
@@ -494,8 +484,7 @@ MainTab:Toggle({
 	Callback = function(s) Settings.ShowHealth = s end,
 })
 
--- 保存Slider引用, 用于后续美化Thumb
-local distanceSlider = MainTab:Slider({
+MainTab:Slider({
 	Title = "最大探测距离",
 	Desc = "鼠标左键按住白色圆点拖拽调节",
 	Step = 10,
@@ -505,25 +494,19 @@ local distanceSlider = MainTab:Slider({
 	Callback = function(v) Settings.MaxDistance = v end,
 })
 
--- 美化Slider的Thumb (让它变成明显可见的白色)
+-- 美化Slider的Thumb
 task.spawn(function()
 	task.wait(3)
 	pcall(function()
 		local rootObj = Window._Object or Window.Window or Window.Instance
 		if not rootObj then return end
-		
-		-- 深度搜索所有ImageButton,找到Slider的Thumb
 		for _, desc in ipairs(rootObj:GetDescendants()) do
-			-- ImageButton类型的Thumb
 			if desc:IsA("ImageButton") then
-				-- 检查是不是小圆点(Thumb特征: 父级是Frame, 包含"Track"或"Slider"的祖父级)
 				local p = desc.Parent
 				if p and p:IsA("Frame") then
-					-- 设为纯白色圆点
 					desc.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 					desc.BackgroundTransparency = 0
 					desc.BorderSizePixel = 0
-					-- 加个亮色外发
 					local shadow = desc:FindFirstChildOfClass("ImageLabel")
 					if shadow then
 						shadow.ImageColor3 = Color3.fromRGB(100, 200, 255)
@@ -531,8 +514,6 @@ task.spawn(function()
 					end
 				end
 			end
-			
-			-- ImageLabel类型的Thumb
 			if desc:IsA("ImageLabel") then
 				local name = desc.Name or ""
 				local lower = name:lower()
@@ -541,8 +522,6 @@ task.spawn(function()
 					desc.ImageTransparency = 0
 				end
 			end
-			
-			-- 圆形Frame也可能是Thumb
 			if desc:IsA("Frame") then
 				local name = desc.Name or ""
 				local lower = name:lower()
@@ -552,8 +531,6 @@ task.spawn(function()
 				end
 			end
 		end
-		
-		-- 再等2秒,找新渲染出来的元素
 		task.wait(2)
 		for _, desc in ipairs(rootObj:GetDescendants()) do
 			if desc:IsA("ImageButton") then
@@ -652,21 +629,46 @@ UITab:Paragraph({
 })
 
 -- ========================================================================
--- ===== Tab 4: 信息统计 =====
+-- ===== Tab 4: 信息统计 (v5.4: 改用Paragraph,彻底解决文字错乱) =====
 -- ========================================================================
+-- v5.4 改动: 原来用 Input 显示统计,Input有标题+输入框双重边框,
+-- 导致4个Input堆叠后文字和边框糊在一起。
+-- 改用 Paragraph 格式,每个统计项单独一个 Paragraph,
+-- 标题显示图标+数值,Desc留空,干净整洁。
+
 local StatsTab = Window:Tab({ Title = "信息统计", Icon = "solar:chart-2-bold" })
 
-local SG = StatsTab:Group({})
-local GoodInput = SG:Input({ Title = "🟢 好人", Value = "0", Locked = true })
-SG:Space()
-local BadInput = SG:Input({ Title = "🔴 坏人", Value = "0", Locked = true })
-SG:Space()
-local UnknownInput = SG:Input({ Title = "❓ 未知", Value = "0", Locked = true })
-SG:Space()
-local TotalInput = SG:Input({ Title = "📊 总计", Value = "0", Locked = true })
-SG:Space()
-SG:Section({ Title = "调试信息", TextSize = 14 })
-local DebugInput = SG:Input({
+local StatsGroup = StatsTab:Group({})
+
+-- 用Paragraph展示各个统计,每个只显示标题,没有多余的输入框
+local GoodPara = StatsGroup:Paragraph({
+	Title = "🟢 好人: 0",
+	Desc = "",
+})
+StatsGroup:Space()
+
+local BadPara = StatsGroup:Paragraph({
+	Title = "🔴 坏人: 0",
+	Desc = "",
+})
+StatsGroup:Space()
+
+local UnknownPara = StatsGroup:Paragraph({
+	Title = "❓ 未知: 0",
+	Desc = "",
+})
+StatsGroup:Space()
+
+local TotalPara = StatsGroup:Paragraph({
+	Title = "📊 总计: 0",
+	Desc = "",
+})
+StatsGroup:Space()
+
+StatsGroup:Section({ Title = "调试信息", TextSize = 14 })
+
+-- 最近发现用Input显示(只有1个Input,不会糊在一起)
+local DebugInput = StatsGroup:Input({
 	Title = "最近发现",
 	Value = "等待扫描...",
 	Locked = true,
@@ -677,7 +679,7 @@ local DebugInput = SG:Input({
 -- ========================================================================
 local AboutTab = Window:Tab({ Title = "关于", Icon = "solar:info-square-bold" })
 
-AboutTab:Section({ Title = "机场安全透视 v5.3", TextSize = 24 })
+AboutTab:Section({ Title = "机场安全透视 v5.4", TextSize = 24 })
 AboutTab:Space()
 AboutTab:Paragraph({
 	Title = "👤 作者",
@@ -906,7 +908,7 @@ task.spawn(function()
 				end
 			end
 			
-			-- 更新统计
+			-- 更新统计 (v5.4: 用 Paragraph.Title 显示统计数据)
 			local good, bad, unknown = 0, 0, 0
 			for _, data in pairs(ESPData) do
 				if data.NPCType == "Good" then good = good + 1 end
@@ -916,10 +918,34 @@ task.spawn(function()
 			
 			local total = good + bad + unknown
 			pcall(function()
-				GoodInput:Set(tostring(good))
-				BadInput:Set(tostring(bad))
-				UnknownInput:Set(tostring(unknown))
-				TotalInput:Set(tostring(total))
+				-- Paragraph 更新 (通过修改Title属性来显示)
+				local goodStr = string.format("🟢 好人: %d", good)
+				local badStr = string.format("🔴 坏人: %d", bad)
+				local unkStr = string.format("❓ 未知: %d", unknown)
+				local totStr = string.format("📊 总计: %d", total)
+				
+				-- 直接修改Paragraph内部文本
+				local function updateParaTitle(para, newTitle)
+					if para and para._Object then
+						para._Object.Title = newTitle
+					end
+					-- fallback: 尝试修改Descendant里的TextLabel
+					if para and para._Object then
+						for _, v in ipairs(para._Object:GetDescendants()) do
+							if v:IsA("TextLabel") and v.Text then
+								if string.find(v.Text, "🟢") or string.find(v.Text, "🔴") or string.find(v.Text, "❓") or string.find(v.Text, "📊") then
+									v.Text = newTitle
+								end
+							end
+						end
+					end
+				end
+				
+				updateParaTitle(GoodPara, goodStr)
+				updateParaTitle(BadPara, badStr)
+				updateParaTitle(UnknownPara, unkStr)
+				updateParaTitle(TotalPara, totStr)
+				
 				DebugInput:Set(lastDebugMsg)
 				
 				if total > 0 then
@@ -970,6 +996,6 @@ UserInputService.InputBegan:Connect(function(input, gp)
 	end
 end)
 
-print("✅ 机场安全透视 v5.3 已加载!")
+print("✅ 机场安全透视 v5.4 已加载!")
 print("⌨️ 按 RightShift 打开/关闭菜单")
 print("🔑 其他快捷键请到UI中自行设置")
