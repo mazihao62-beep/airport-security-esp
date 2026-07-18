@@ -1,16 +1,14 @@
 --[[
-	机场安全透视脚本 v6.0 (Airport Security ESP)
+	机场安全透视脚本 v6.1 (Airport Security ESP)
 	作者: b站英吉利超入_
 	
-	v6.0 - 彻底修复NPC分类器
-	  🐛 问题1: classifyCharacter路径检查优先级高于名字
-	     → 所有NPCTemplate下的NPC都被判为坏人,无视名字
-	  🐛 问题2: 头顶标签仍为英文"💀 Threat""👮 Agent"
-	  🐛 问题3: 还有"Unknown"分类(用户只需要好人/坏人)
-	  🐛 问题4: Input:Set("string")参数错误导致文字错乱
-	  🐛 问题5: Paragraph用Desc=""产生多余空白
-	  🐛 问题6: 信息统计还有"未知"一栏
-	  🐛 问题7: Slider不可见(白色圆点没找到)
+	v6.1 - 彻底修复分类器: 过滤真实玩家 + NPCType属性优先 + 无法判断跳过
+	  🐛 问题1: 玩家自己被检测并标记为坏人
+	     → isCharacterModel的==比较不可靠,改用GetPlayerFromCharacter
+	  🐛 问题2: 所有NPC因关键词不匹配默认fallback为坏人
+	     → 无法判断则跳过,宁缺毋滥
+	  🐛 问题3: NPCType属性检测排在名字之后
+	     → 提到第一优先级(来源NPCSetup.lua源码)
 --]]
 
 -- ========================================================================
@@ -26,10 +24,8 @@ if not Success or not WindUI then
 	local Players = game:GetService("Players")
 	local Workspace = game:GetService("Workspace")
 	local CoreGui = game:GetService("CoreGui")
-	local UserInputService = game:GetService("UserInputService")
 	local LocalPlayer = Players.LocalPlayer
 	
-	-- 原生模式快速ESP
 	local ESPData = {}
 	local MaxDistance = 500
 	
@@ -91,68 +87,48 @@ if not Success or not WindUI then
 		return bb, lbl, info
 	end
 	
-	-- ===== 原生模式分类器 (v6.0: 名字优先,中文+英文,只有好人/坏人) =====
-	local function classify(obj)
-		local name = obj.Name or ""
-		local path = obj:GetFullName() or ""
+	-- ===== 原生模式分类器 (v6.1: NPCType优先,无法判断跳过) =====
+	local function classify(char)
+		local name = char.Name or ""
+		local path = char:GetFullName() or ""
 		
-		-- [优先1] 中文关键词
-		local cnGood = {"警察", "保安", "警卫", "军官", "士兵", "警"}
-		local cnBad  = {"恐怖", "匪徒", "歹徒", "罪犯", "敌人", "杀手", "袭击", "入侵"}
-		for _, kw in ipairs(cnGood) do
-			if name:find(kw, 1, true) then
-				return "Good", Color3.fromRGB(0, 255, 100), "👮 好人"
-			end
-		end
-		for _, kw in ipairs(cnBad) do
-			if name:find(kw, 1, true) then
-				return "Bad", Color3.fromRGB(255, 50, 50), "💀 坏人"
-			end
-		end
-		
-		-- [优先2] 英文关键词
-		local enGood = {"Police", "Security", "Guard", "Agent", "Cop", "SWAT", "Friendly", "Officer"}
-		local enBad  = {"Terrorist", "Enemy", "Hostile", "Threat", "Criminal", "Suspect", "Bandit", "Raid"}
-		for _, kw in ipairs(enGood) do
-			if name:find(kw, 1, true) then
-				return "Good", Color3.fromRGB(0, 255, 100), "👮 好人"
-			end
-		end
-		for _, kw in ipairs(enBad) do
-			if name:find(kw, 1, true) then
-				return "Bad", Color3.fromRGB(255, 50, 50), "💀 坏人"
-			end
-		end
-		
-		-- [优先3] Humanoid NPCType属性 (来源源码NPCSetup.lua)
-		local hum = obj:FindFirstChildOfClass("Humanoid")
+		-- [1] NPCType属性 (最可靠,来自NPCSetup.lua)
+		local hum = char:FindFirstChildOfClass("Humanoid")
 		if hum then
-			local npcType = hum:GetAttribute("NPCType") or hum:FindFirstChild("NPCType")
+			local npcType = hum:GetAttribute("NPCType")
 			if npcType then
-				local t = tostring(npcType)
-				if t == "Agent" then return "Good", Color3.fromRGB(0, 255, 100), "👮 好人" end
-				if t == "Enemy" then return "Bad", Color3.fromRGB(255, 50, 50), "💀 坏人" end
+				local t = tostring(npcType):upper()
+				if t == "AGENT" then return "Good", Color3.fromRGB(0, 255, 100), "👮 好人" end
+				if t == "ENEMY" then return "Bad", Color3.fromRGB(255, 50, 50), "💀 坏人" end
 			end
 		end
 		
-		-- [后备] 路径检测
+		-- [2] 中文名
+		for _, kw in ipairs({"警察","保安","警卫","军官","士兵","警","守卫","护卫"}) do
+			if name:find(kw, 1, true) then return "Good", Color3.fromRGB(0, 255, 100), "👮 好人" end
+		end
+		for _, kw in ipairs({"恐怖","匪徒","歹徒","罪犯","敌人","杀手","袭击","入侵","坏"}) do
+			if name:find(kw, 1, true) then return "Bad", Color3.fromRGB(255, 50, 50), "💀 坏人" end
+		end
+		
+		-- [3] 英文名
+		for _, kw in ipairs({"Police","Security","Guard","Agent","Cop","SWAT","Officer","Protector","Patrol"}) do
+			if name:find(kw, 1, true) then return "Good", Color3.fromRGB(0, 255, 100), "👮 好人" end
+		end
+		for _, kw in ipairs({"Terrorist","Enemy","Hostile","Threat","Criminal","Suspect","Bandit","Raid","Bad"}) do
+			if name:find(kw, 1, true) then return "Bad", Color3.fromRGB(255, 50, 50), "💀 坏人" end
+		end
+		
+		-- [4] 路径
 		if path:find("AgentTemplate") and not path:find("NPCTemplate") then
 			return "Good", Color3.fromRGB(0, 255, 100), "👮 好人"
 		end
 		if path:find("NPCTemplate") and not path:find("AgentTemplate") then
 			return "Bad", Color3.fromRGB(255, 50, 50), "💀 坏人"
 		end
-		if path:find("NPCWorkspace") then
-			return "Bad", Color3.fromRGB(255, 50, 50), "💀 坏人"
-		end
 		
-		-- 默认: 按名字含"NPC"判坏人
-		if name:find("NPC", 1, true) then
-			return "Bad", Color3.fromRGB(255, 50, 50), "💀 坏人"
-		end
-		
-		-- 实在无法判断 -> 默认坏人 (宁可错杀)
-		return "Bad", Color3.fromRGB(255, 50, 50), "💀 坏人"
+		-- [5] 无法判断 -> 跳过
+		return nil
 	end
 	
 	task.spawn(function()
@@ -161,14 +137,21 @@ if not Success or not WindUI then
 				for _, hum in ipairs(Workspace:GetDescendants()) do
 					if hum:IsA("Humanoid") and hum.Parent and hum.Health > 0 then
 						local char = hum.Parent
-						if char ~= LocalPlayer.Character and char:IsA("Model") and not ESPData[char] then
+						if char:IsA("Model") and not ESPData[char] then
+							-- 跳过所有真实玩家
+							if Players:GetPlayerFromCharacter(char) then break end
+							
 							local npcType, color, label = classify(char)
+							if not npcType then break end -- 无法判断跳过
+							
 							local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
 							local objRoot = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Head")
 							if myRoot and objRoot and (objRoot.Position - myRoot.Position).Magnitude <= MaxDistance then
 								local hl = createHL(char, color)
 								local bb, lbl, info = createLabel(char, color, label)
-								ESPData[char] = {HL = hl, BB = bb, Lbl = lbl, Info = info, Hum = hum, Type = npcType}
+								if hl and bb then
+									ESPData[char] = {HL = hl, BB = bb, Lbl = lbl, Info = info, Hum = hum, Type = npcType}
+								end
 							end
 						end
 					end
@@ -184,7 +167,7 @@ if not Success or not WindUI then
 		end
 	end)
 	
-	print("✅ 机场安全ESP v6.0 (原生模式) 已加载")
+	print("✅ 机场安全ESP v6.1 (原生模式) 已加载 - 已过滤真实玩家")
 	return
 end
 
@@ -199,7 +182,7 @@ local loadConfirmed = false
 local popupClosed = false
 
 WindUI:Popup({
-	Title = "🛡️ 机场安全透视 v6.0",
+	Title = "🛡️ 机场安全透视 v6.1",
 	Icon = "solar:shield-warning-bold",
 	Content = "是否加载机场安全透视脚本？\n\n主要功能：\n• 自动识别好人/坏人\n• 透视穿墙高亮\n• 头顶中文标签\n• 自定义快捷键\n\n按 RightShift 打开菜单",
 	Buttons = {
@@ -253,7 +236,7 @@ end)
 -- ===== 纯WindUI通知 =====
 WindUI:Notify({
 	Title = "✅ 已确认加载",
-	Content = "按 RightShift 打开菜单 | 在功能设置中绑定快捷键",
+	Content = "按 RightShift 打开菜单 | 已过滤真实玩家",
 	Duration = 5,
 	Icon = "solar:eye-bold",
 })
@@ -353,35 +336,26 @@ local function setOpenButtonVisible(visible)
 end
 
 -- ========================================================================
--- ===== 滚动条美化 (白色大滑块,可拖拽) =====
+-- ===== 滚动条美化 =====
 -- ========================================================================
 task.spawn(function()
 	task.wait(2)
 	for i = 1, 30 do
 		task.wait(0.1)
-		local rootObj = nil
 		pcall(function()
-			-- 尝试获取WindUI窗口的根对象
-			local allGui = CoreGui:GetChildren()
-			for _, gui in ipairs(allGui) do
+			for _, gui in ipairs(CoreGui:GetChildren()) do
 				if gui:IsA("ScreenGui") then
-					for _, child in ipairs(gui:GetChildren()) do
-						if child:IsA("ScrollingFrame") and child.AbsoluteSize.Y > 50 then
-							rootObj = child
+					for _, desc in ipairs(gui:GetDescendants()) do
+						if desc:IsA("ScrollingFrame") and desc.AbsoluteSize.Y > 50 then
+							desc.ScrollBarThickness = 14
+							desc.ScrollBarImageColor3 = Color3.fromRGB(255, 255, 255)
+							desc.ScrollBarImageTransparency = 0.3
+							desc.VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar
 						end
 					end
 				end
 			end
 		end)
-		if rootObj then
-			pcall(function()
-				rootObj.ScrollBarThickness = 14
-				rootObj.ScrollBarImageColor3 = Color3.fromRGB(255, 255, 255)
-				rootObj.VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar
-				-- 给滑块添加圆角
-				rootObj.ScrollBarImageTransparency = 0.4
-			end)
-		end
 	end
 end)
 
@@ -445,34 +419,15 @@ MainTab:Toggle({
 	Callback = function(s) Settings.ShowHealth = s end,
 })
 
--- ===== Slider: 带白色发光圆点 =====
-local SliderObj = MainTab:Slider({
+MainTab:Slider({
 	Title = "最大探测距离",
-	Desc = "鼠标左键按住圆点拖拽调节",
+	Desc = "鼠标左键按住白色圆点拖拽调节",
 	Step = 10,
 	Value = { Min = 50, Max = 1000, Default = 500 },
 	IsTooltip = true,
 	Width = IsMobile and 150 or 200,
 	Callback = function(v) Settings.MaxDistance = v end,
 })
-
--- 美化Slider的Thumb为白色发光圆点
-task.spawn(function()
-	task.wait(1)
-	pcall(function()
-		-- 在WindUI的内部查找Slider的thumb部分
-		for _, gui in ipairs(CoreGui:GetChildren()) do
-			if gui:IsA("ScreenGui") then
-				for _, desc in ipairs(gui:GetDescendants()) do
-					if desc:IsA("ImageLabel") and (desc.Name:find("Thumb") or desc.Name:find("thumb") or desc.Name:find("Thumbnail")) then
-						desc.ImageColor3 = Color3.fromRGB(255, 255, 255)
-						desc.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-					end
-				end
-			end
-		end
-	end)
-end)
 
 -- ========================================================================
 -- ===== Tab 2: 功能设置 =====
@@ -487,10 +442,8 @@ FuncTab:Keybind({
 	Desc = "点击后按下键盘按键即可绑定",
 	Value = "None",
 	Callback = function(key)
-		if key == "None" then
-			Settings.ESPHotkey = nil
-		else
-			Settings.ESPHotkey = key
+		Settings.ESPHotkey = (key == "None") and nil or key
+		if key and key ~= "None" then
 			print(string.format("[ESP] 透视快捷键已设为: %s", key))
 		end
 	end,
@@ -503,10 +456,8 @@ FuncTab:Keybind({
 	Desc = "点击后按下键盘按键即可绑定",
 	Value = "None",
 	Callback = function(key)
-		if key == "None" then
-			Settings.BadOnlyHotkey = nil
-		else
-			Settings.BadOnlyHotkey = key
+		Settings.BadOnlyHotkey = (key == "None") and nil or key
+		if key and key ~= "None" then
 			print(string.format("[ESP] 仅坏人快捷键已设为: %s", key))
 		end
 	end,
@@ -533,9 +484,7 @@ UITab:Keybind({
 	Callback = function(key)
 		if key == "None" then
 			Settings.ToggleHotkey = "RightShift"
-			pcall(function()
-				Window:SetToggleKey(Enum.KeyCode.RightShift)
-			end)
+			pcall(function() Window:SetToggleKey(Enum.KeyCode.RightShift) end)
 		elseif key ~= "RightShift" then
 			Settings.ToggleHotkey = key
 			pcall(function()
@@ -571,13 +520,12 @@ UITab:Paragraph({
 })
 
 -- ========================================================================
--- ===== Tab 4: 信息统计 (v6.0: 仅好人/坏人,无未知) =====
+-- ===== Tab 4: 信息统计 =====
 -- ========================================================================
 local StatsTab = Window:Tab({ Title = "信息统计", Icon = "solar:chart-2-bold" })
 
 local StatsGroup = StatsTab:Group({})
 
--- 只用Paragraph, 不传Desc参数避免空白行
 local GoodPara = StatsGroup:Paragraph({ Title = "🟢 好人: 0" })
 StatsGroup:Space()
 local BadPara = StatsGroup:Paragraph({ Title = "🔴 坏人: 0" })
@@ -599,7 +547,7 @@ local DebugInput = StatsGroup:Input({
 -- ========================================================================
 local AboutTab = Window:Tab({ Title = "关于", Icon = "solar:info-square-bold" })
 
-AboutTab:Section({ Title = "机场安全透视 v6.0", TextSize = 24 })
+AboutTab:Section({ Title = "机场安全透视 v6.1", TextSize = 24 })
 AboutTab:Space()
 AboutTab:Paragraph({
 	Title = "👤 作者",
@@ -615,19 +563,22 @@ AboutTab:Paragraph({
 1️⃣ 在「功能设置」中绑定快捷键
 2️⃣ 开启透视后NPC自动高亮
 
-💡 右侧白色滑块可拖拽滚动
+💡 无法判断的NPC将跳过不显示
 ]],
 })
 
 -- ========================================================================
 -- ======================== ESP 核心系统 ================================
--- ======================== v6.0: 分类器彻底修复 ==========================
+-- ======================== v6.1: 修复玩家检测 + 分类器 =====================
 
--- ===== 角色检测函数 =====
+-- ===== v6.1: 角色检测函数 (过滤所有真实玩家) =====
 local function isCharacterModel(obj)
 	if not obj or not obj:IsA("Model") then return false end
-	if obj == LocalPlayer.Character then return false end
 	if not obj.Parent then return false end
+	
+	-- v6.1: 用GetPlayerFromCharacter过滤所有真实玩家(比==更可靠)
+	if Players:GetPlayerFromCharacter(obj) then return false end
+	if obj == LocalPlayer.Character then return false end
 	
 	local hasHead = obj:FindFirstChild("Head") ~= nil
 	local hasHRP = obj:FindFirstChild("HumanoidRootPart") ~= nil
@@ -706,56 +657,42 @@ local function createHighlight(char, color)
 	return hl
 end
 
--- ===== v6.0 分类器 (彻底修复: 名字优先,中文+英文+属性,只有好人/坏人) =====
+-- ===== v6.1 分类器: NPCType优先,无法判断则跳过 =====
 local function classifyCharacter(obj)
-	if not obj then
-		return "Bad", Color3.fromRGB(255, 50, 50), "💀 坏人"
-	end
+	if not obj then return nil end
 	
 	local name = obj.Name or ""
 	local fullPath = obj:GetFullName() or ""
 	
-	-- [第1层] 中文关键词 (优先级最高)
-	local cnGood = {"警察", "保安", "警卫", "军官", "士兵", "警"}
-	local cnBad  = {"恐怖", "匪徒", "歹徒", "罪犯", "敌人", "杀手", "袭击", "入侵"}
-	for _, kw in ipairs(cnGood) do
-		if name:find(kw, 1, true) then
-			return "Good", Color3.fromRGB(0, 255, 100), "👮 好人"
-		end
-	end
-	for _, kw in ipairs(cnBad) do
-		if name:find(kw, 1, true) then
-			return "Bad", Color3.fromRGB(255, 50, 50), "💀 坏人"
-		end
-	end
-	
-	-- [第2层] 英文关键词
-	local enGood = {"Police", "Security", "Guard", "Agent", "Cop", "SWAT", "Friendly", "Officer"}
-	local enBad  = {"Terrorist", "Enemy", "Hostile", "Threat", "Criminal", "Suspect", "Bandit", "Raid"}
-	for _, kw in ipairs(enGood) do
-		if name:find(kw, 1, true) then
-			return "Good", Color3.fromRGB(0, 255, 100), "👮 好人"
-		end
-	end
-	for _, kw in ipairs(enBad) do
-		if name:find(kw, 1, true) then
-			return "Bad", Color3.fromRGB(255, 50, 50), "💀 坏人"
-		end
-	end
-	
-	-- [第3层] Humanoid NPCType属性 (来源于NPCSetup.lua源码)
+	-- [第1层] NPCType属性 (源码NPCSetup.lua: hum:SetAttribute("NPCType", "Agent"/"Enemy"))
 	local hum = obj:FindFirstChildOfClass("Humanoid")
 	if hum then
-		local npcTypeAttr = hum:GetAttribute("NPCType")
-		if npcTypeAttr then
-			local t = tostring(npcTypeAttr)
-			if t == "Agent" then
-				return "Good", Color3.fromRGB(0, 255, 100), "👮 好人"
-			end
-			if t == "Enemy" then
-				return "Bad", Color3.fromRGB(255, 50, 50), "💀 坏人"
-			end
+		local npcType = hum:GetAttribute("NPCType")
+		if npcType ~= nil then
+			local t = tostring(npcType):upper()
+			if t == "AGENT" then return "Good", Color3.fromRGB(0, 255, 100), "👮 好人" end
+			if t == "ENEMY" then return "Bad", Color3.fromRGB(255, 50, 50), "💀 坏人" end
 		end
+	end
+	
+	-- [第2层] 中文名
+	local cnGood = {"警察","保安","警卫","军官","士兵","警","守卫","护卫","执法人员"}
+	local cnBad  = {"恐怖","匪徒","歹徒","罪犯","敌人","杀手","袭击","入侵","坏蛋","暴徒","劫匪"}
+	for _, kw in ipairs(cnGood) do
+		if name:find(kw, 1, true) then return "Good", Color3.fromRGB(0, 255, 100), "👮 好人" end
+	end
+	for _, kw in ipairs(cnBad) do
+		if name:find(kw, 1, true) then return "Bad", Color3.fromRGB(255, 50, 50), "💀 坏人" end
+	end
+	
+	-- [第3层] 英文名
+	local enGood = {"Police","Security","Guard","Agent","Cop","SWAT","Officer","Protector","Patrol","Sentinel"}
+	local enBad  = {"Terrorist","Enemy","Hostile","Threat","Criminal","Suspect","Bandit","Raid","BadGuy","Invader"}
+	for _, kw in ipairs(enGood) do
+		if name:find(kw, 1, true) then return "Good", Color3.fromRGB(0, 255, 100), "👮 好人" end
+	end
+	for _, kw in ipairs(enBad) do
+		if name:find(kw, 1, true) then return "Bad", Color3.fromRGB(255, 50, 50), "💀 坏人" end
 	end
 	
 	-- [第4层] 路径检测
@@ -769,13 +706,29 @@ local function classifyCharacter(obj)
 		return "Bad", Color3.fromRGB(255, 50, 50), "💀 坏人"
 	end
 	
-	-- [第5层] 名字含"NPC"判坏人
-	if name:find("NPC", 1, true) then
-		return "Bad", Color3.fromRGB(255, 50, 50), "💀 坏人"
+	-- [第5层] TeamColor
+	if hum and hum.TeamColor then
+		local tcName = tostring(hum.TeamColor):upper()
+		if tcName:find("BLUE") or tcName:find("GREEN") or tcName:find("WHITE") then
+			return "Good", Color3.fromRGB(0, 255, 100), "👮 好人"
+		end
+		if tcName:find("RED") or tcName:find("MAROON") or tcName:find("BRICK") then
+			return "Bad", Color3.fromRGB(255, 50, 50), "💀 坏人"
+		end
 	end
 	
-	-- [保底] 无法判断时默认坏人 (宁可错杀)
-	return "Bad", Color3.fromRGB(255, 50, 50), "💀 坏人"
+	-- [第6层] 工具检测
+	for _, child in ipairs(obj:GetChildren()) do
+		if child:IsA("Tool") then
+			local toolName = child.Name:upper()
+			if toolName:find("ARREST") or toolName:find("TASER") then
+				return "Good", Color3.fromRGB(0, 255, 100), "👮 好人"
+			end
+		end
+	end
+	
+	-- 无法判断 -> 跳过 (宁缺毋滥)
+	return nil
 end
 
 local function getHumanoid(char)
@@ -791,24 +744,31 @@ local scanCount = 0
 
 task.spawn(function()
 	print("=" .. string.rep("=", 50) .. "=")
-	print("[ESP] 🛡️ 机场安全透视 v6.0 扫描系统启动")
+	print("[ESP] 🛡️ 机场安全透视 v6.1 扫描系统启动")
 	print(string.format("[ESP] 玩家: %s", LocalPlayer.Name or "未知"))
 	print(string.format("[ESP] Workspace子级: %d", #Workspace:GetChildren()))
+	print("[ESP] 分类策略: NPCType属性 > 中文名 > 英文名 > 路径 > TeamColor > 工具")
+	print("[ESP] 无法判断: 跳过不显示 | 真实玩家: 已过滤")
 	print("=" .. string.rep("=", 50) .. "=")
 	
 	while task.wait(1) do
 		pcall(function()
 			scanCount = scanCount + 1
 			local newFound = 0
-			
-			-- 扫描Humanoid
 			local humCount = 0
+			local skipped = 0
+			
 			for _, hum in ipairs(Workspace:GetDescendants()) do
 				if hum:IsA("Humanoid") and hum.Parent then
 					humCount = humCount + 1
 					local char = hum.Parent
 					if char:IsA("Model") and isCharacterModel(char) and not ESPData[char] then
 						local npcType, color, label = classifyCharacter(char)
+						if not npcType then
+							skipped = skipped + 1
+							break
+						end
+						
 						local myRoot = getRootPart(LocalPlayer.Character)
 						local objRoot = getRootPart(char)
 						if myRoot and objRoot then
@@ -825,7 +785,7 @@ task.spawn(function()
 										Humanoid = humObj, NPCType = npcType,
 									}
 									newFound = newFound + 1
-									print(string.format("[ESP] ✅ %s | %s | %.0fm | %s", char.Name, npcType, dist, char:GetFullName()))
+									print(string.format("[ESP] ✅ %s | %s | %.0fm", char.Name, npcType, dist))
 								end
 							end
 						end
@@ -833,7 +793,7 @@ task.spawn(function()
 				end
 			end
 			
-			-- 清理已删除的
+			-- 清理
 			for obj, data in pairs(ESPData) do
 				if not obj.Parent then
 					if data.Highlight then data.Highlight:Destroy() end
@@ -842,7 +802,7 @@ task.spawn(function()
 				end
 			end
 			
-			-- 更新标签信息
+			-- 更新标签
 			if LocalPlayer.Character then
 				local myRoot = getRootPart(LocalPlayer.Character)
 				for obj, data in pairs(ESPData) do
@@ -862,13 +822,12 @@ task.spawn(function()
 				end
 			end
 			
-			-- 更新统计 (v6.0: 只有好人/坏人,无未知)
+			-- 更新统计
 			local good, bad = 0, 0
 			for _, data in pairs(ESPData) do
 				if data.NPCType == "Good" then good = good + 1 end
 				if data.NPCType == "Bad" then bad = bad + 1 end
 			end
-			
 			local total = good + bad
 			
 			pcall(function()
@@ -876,35 +835,27 @@ task.spawn(function()
 				BadPara:SetTitle(string.format("🔴 坏人: %d", bad))
 				TotalPara:SetTitle(string.format("📊 总计: %d", total))
 				
-				-- v6.0: Input:Set({Value = "..."}) 正确的传参方式
-				local debugStr = string.format("扫描%d次 | Humanoid:%d个 | 本批发现%d个 | 总计%d个",
-					scanCount, humCount, newFound, total)
+				local debugStr = string.format("扫描%d次 | Humanoid:%d个 | 新%d个 | 总计%d个 | 跳过%d个",
+					scanCount, humCount, newFound, total, skipped)
 				if total == 0 then
-					debugStr = debugStr .. " | ⚠️ 未发现目标"
+					debugStr = debugStr .. " | ⚠️ 未发现可识别NPC"
 				end
 				DebugInput:Set({ Value = debugStr })
 				
 				if total > 0 then
 					statusInput:Set({ Value = string.format("🟢 %d | 🔴 %d | 总计: %d", good, bad, total) })
 				else
-					local scanMsg = "扫描中... 未发现目标"
-					if scanCount > 10 then
-						scanMsg = "⚠️ 未发现目标 - 可能本局无NPC或距离太远"
-					end
+					local scanMsg = "扫描中..."
 					if humCount == 0 then
 						scanMsg = "⚠️ Workspace中无任何Humanoid对象"
+					elseif scanCount > 10 then
+						scanMsg = "⚠️ 发现"..humCount.."个Humanoid,但无法识别类型(已跳过"..skipped.."个)"
+					else
+						scanMsg = "扫描中... 等待NPC出现"
 					end
 					statusInput:Set({ Value = scanMsg })
 				end
 			end)
-			
-			if scanCount == 1 then
-				print("[ESP] 首次扫描 - Workspace结构:")
-				for _, child in ipairs(Workspace:GetChildren()) do
-					print(string.format("[ESP]   ├─ %s (%s)", child.Name, child.ClassName))
-				end
-				print(string.format("[ESP] 总计Humanoid数量: %d", humCount))
-			end
 		end)
 	end
 end)
@@ -939,6 +890,6 @@ UserInputService.InputBegan:Connect(function(input, gp)
 	end
 end)
 
-print("✅ 机场安全透视 v6.0 已加载!")
-print("📡 NPC分类: 中文名 > 英文名 > NPCType属性 > 路径 > 默认坏人")
-print("🏷 头顶标签: 👮好人 / 💀坏人 (全中文)")
+print("✅ 机场安全透视 v6.1 已加载!")
+print("📡 NPC分类: NPCType属性 > 中文名 > 英文名 > 路径 > TeamColor > 工具")
+print("🏷 无法判断的NPC将跳过 | 真实玩家已被过滤")
