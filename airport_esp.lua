@@ -1,8 +1,8 @@
 --[[
-    机场安全透视脚本 v11.2
+    机场安全透视脚本 v11.3
     作者: b站英吉利超入_
     功能: ESP透视 + 好人/坏人识别 + 主题系统 + 粒子背景 + 增强毛玻璃
-    更新: 粒子系统大修 - 50粒子(4-8px) / 紧约束0.18~0.78 / 颜色直接取WindUI主色
+    更新: 添加清理系统 - 脚本停止后彻底清除所有残留
 ]]
 
 -- ========== 服务 ==========
@@ -14,6 +14,76 @@ local RunService = game:GetService("RunService")
 
 local IsMobile = false
 pcall(function() IsMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled end)
+
+-- ========== 清理系统 ==========
+-- 维护所有创建对象的引用，支持一键彻底清理
+-- 解决脚本关闭后 Highlight/Billboard/粒子 残留的问题
+
+local ScriptInstances = {}  -- 所有创建的 Roblox 实例
+
+local function trackInstance(instance)
+    if instance then table.insert(ScriptInstances, instance) end
+    return instance
+end
+
+-- 彻底清理所有残留
+local function cleanAllInstances()
+    print("[机场安全透视] 彻底清理中...")
+
+    -- 1. 停止粒子线程 + 销毁粒子 GUI
+    ParticleRunning = false
+    local oldParticleGui = CoreGui:FindFirstChild("AirportESP_Particles")
+    if oldParticleGui then pcall(function() oldParticleGui:Destroy() end) end
+
+    -- 2. 销毁所有 ESP（Highlight + BillboardGui）
+    for char, obj in pairs(ESPObjects) do
+        pcall(function() if obj.Highlight then obj.Highlight:Destroy() end end)
+        pcall(function() if obj.Billboard then obj.Billboard:Destroy() end end)
+    end
+    ESPObjects = {}
+    TrackedNPCs = {}
+    Stats = {Good = 0, Bad = 0, Total = 0}
+
+    -- 3. 销毁所有跟踪的实例
+    for _, inst in ipairs(ScriptInstances) do
+        pcall(function() inst:Destroy() end)
+    end
+    ScriptInstances = {}
+
+    -- 4. 清理特定名称的 GUI
+    local guiNames = {"AirportESP_Particles", "AirportESP_Btn", "AirportESP_Heartbeat"}
+    for _, name in ipairs(guiNames) do
+        local existing = CoreGui:FindFirstChild(name)
+        if existing then pcall(function() existing:Destroy() end) end
+    end
+
+    -- 5. 清理全局引用
+    FloatingButtonGui = nil
+    ParticleGui = nil
+    Particles = {}
+    WindowRef = nil
+    IsScanning = false
+    ParticleRunning = false
+
+    print("[机场安全透视] 清理完成 ✓")
+end
+
+-- 注册到全局，用户可在控制台输入 _G.CleanupAirportESP() 手动清理
+_G.CleanupAirportESP = cleanAllInstances
+
+-- 启动时自动清理上一次运行的残留
+task.spawn(function()
+    task.wait(0.1)
+    local guiNames = {"AirportESP_Particles", "AirportESP_Btn", "AirportESP_Heartbeat"}
+    for _, name in ipairs(guiNames) do
+        local existing = CoreGui:FindFirstChild(name)
+        if existing then pcall(function() existing:Destroy() end) end
+    end
+    -- 清理上一次残留的 Highlight/Billboard（通过检测归属）
+    -- 注意：不销毁其他脚本的 Highlight，只清理我们的
+    local ourObjects = CoreGui:FindFirstChild("AirportESP_Objects")
+    if ourObjects then pcall(function() ourObjects:Destroy() end) end
+end)
 
 -- ========== 配置 ==========
 local Settings = {
@@ -55,7 +125,7 @@ local TabElements = {}
 local ConfigName = "default"
 local DebugLog = {}
 local ParticleRunning = false
-local Particles = {} -- 存储粒子引用，用于颜色更新
+local Particles = {}
 
 local function debugPrint(msg)
     table.insert(DebugLog, msg)
@@ -63,16 +133,8 @@ local function debugPrint(msg)
     print("[ESP调试] " .. msg)
 end
 
--- ========== 粒子背景系统 v11.2 ==========
---  改进：
---    1. 50个粒子（更密集）
---    2. 尺寸4~8px（更大更明显）
---    3. 紧约束0.18~0.78（粒子不飘出窗口区域）
---    4. 颜色优先取 WindUI.Theme.Primary（切换主题后实时更新）
---    5. 存储粒子引用表，颜色更新直接操作引用而非搜索子对象
--- ==========================================
+-- ========== 粒子背景系统 ==========
 local function getParticleColor()
-    -- 1. 优先取 WindUI 当前主题主色（最可靠，实时对应实际主题）
     local primary = nil
     pcall(function()
         if WindUI and WindUI.Theme and WindUI.Theme.Primary then
@@ -80,10 +142,8 @@ local function getParticleColor()
         end
     end)
     if primary then return primary end
-    -- 2. 备选：主题名映射
     local themeName = Settings.CurrentTheme or "Dark"
     if ThemeColors[themeName] then return ThemeColors[themeName] end
-    -- 3. 最后默认蓝色
     return Color3.fromRGB(100, 180, 255)
 end
 
@@ -97,6 +157,7 @@ local function createParticles()
         ParticleGui.Name = "AirportESP_Particles"
         ParticleGui.ResetOnSpawn = false; ParticleGui.DisplayOrder = -999
         ParticleGui.IgnoreGuiInset = true; ParticleGui.Parent = CoreGui
+        trackInstance(ParticleGui)
 
         local numParticles = 50
         local particleColor = getParticleColor()
@@ -105,7 +166,6 @@ local function createParticles()
             local dot = Instance.new("Frame")
             local size = math.random(4, 8)
             dot.Size = UDim2.new(0, size, 0, size)
-            -- 紧约束范围，确保粒子在窗口常见区域内
             dot.Position = UDim2.new(
                 0.18 + math.random() * 0.60, 0,
                 0.10 + math.random() * 0.55, 0
@@ -113,7 +173,9 @@ local function createParticles()
             dot.BackgroundColor3 = particleColor
             dot.BackgroundTransparency = 0.4 + math.random() * 0.4
             dot.BorderSizePixel = 0; dot.Parent = ParticleGui
+            trackInstance(dot)
             local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 10); c.Parent = dot
+            trackInstance(c)
 
             local angle = math.random() * 6.28; local speed = 0.0005 + math.random() * 0.0015
             local pData = {
@@ -135,7 +197,6 @@ local function createParticles()
                         if not p.Frame or not p.Frame.Parent then continue end
                         local x = p.Frame.Position.X.Scale + p.Vx
                         local y = p.Frame.Position.Y.Scale + p.Vy
-                        -- 边界平滑反弹（带随机扰动避免卡边）
                         if x > p.MaxBoundX then x = p.MaxBoundX; p.Vx = -p.Vx + (math.random()-0.5)*0.0002
                         elseif x < p.MinBoundX then x = p.MinBoundX; p.Vx = -p.Vx + (math.random()-0.5)*0.0002 end
                         if y > p.MaxBoundY then y = p.MaxBoundY; p.Vy = -p.Vy + (math.random()-0.5)*0.0002
@@ -152,7 +213,6 @@ local function createParticles()
     end)
 end
 
--- 更新粒子颜色 - 直接操作存储的引用表，不再搜索子对象
 local function updateParticleColor()
     local color = getParticleColor()
     if not color or #Particles == 0 then return end
@@ -202,7 +262,6 @@ local function classifyNPC(character, humanoid)
     local tool = character:FindFirstChildOfClass("Tool")
     debugPrint(string.format("检测到: %s | 路径: %s", name, path))
 
-    -- 1. 属性检测
     local attributeChecks = {"NPCType", "Type", "Team", "Faction", "Role", "Class", "Group", "Kind", "Identity"}
     for _, attrName in ipairs(attributeChecks) do
         local val = nil
@@ -220,7 +279,6 @@ local function classifyNPC(character, humanoid)
         end
     end
 
-    -- 2. 名字关键词
     debugPrint(string.format("  名字: %s", name))
     local goodKeywords = {
         "警察", "保安", "警卫", "警", "守卫", "士兵", "军官", "长官", "巡逻",
@@ -247,7 +305,6 @@ local function classifyNPC(character, humanoid)
         end
     end
 
-    -- 3. 部件颜色
     local partColors = {}
     for _, part in ipairs(character:GetChildren()) do
         if part:IsA("BasePart") then
@@ -269,7 +326,6 @@ local function classifyNPC(character, humanoid)
         return "Bad"
     end
 
-    -- 4. 父级容器
     if character.Parent then
         local pn = character.Parent.Name
         for _, kw in ipairs(goodKeywords) do
@@ -280,7 +336,6 @@ local function classifyNPC(character, humanoid)
         end
     end
 
-    -- 5. 工具
     if tool then
         local tn = tool.Name
         for _, kw in ipairs({"Arrest", "Taser", "Bat", "Radio", "Handcuff", "警", "盾", "枪"}) do
@@ -291,7 +346,6 @@ local function classifyNPC(character, humanoid)
         end
     end
 
-    -- 6. 路径
     local pl = path:lower()
     if pl:find("agent") or pl:find("police") or pl:find("friendly") then debugPrint("  → 路径匹配好人"); return "Good" end
     if pl:find("npc") or pl:find("enemy") or pl:find("terror") then debugPrint("  → 路径匹配坏人"); return "Bad" end
@@ -334,27 +388,33 @@ local function createESP(character, npcType)
     hl.FillTransparency = 0.4; hl.OutlineTransparency = 0.2
     hl.FillColor = color; hl.OutlineColor = Color3.fromRGB(255,255,255)
     hl.Enabled = show; hl.Parent = CoreGui
+    trackInstance(hl)
 
     local head = character:FindFirstChild("Head") or character:FindFirstChild("Torso") or root
     local bb = Instance.new("BillboardGui")
     bb.Adornee = head; bb.Size = UDim2.new(0,160,0,50); bb.StudsOffset = Vector3.new(0,3,0)
     bb.AlwaysOnTop = true; bb.Enabled = show; bb.Parent = CoreGui; bb.ClipsDescendants = false
+    trackInstance(bb)
 
     local bg = Instance.new("Frame")
     bg.Size = UDim2.new(1,0,1,0); bg.BackgroundColor3 = Color3.fromRGB(0,0,0)
     bg.BackgroundTransparency = 0.4; bg.BorderSizePixel = 0; bg.Parent = bb
+    trackInstance(bg)
     local bgc = Instance.new("UICorner"); bgc.CornerRadius = UDim.new(0,4); bgc.Parent = bg
+    trackInstance(bgc)
 
     local lbl = Instance.new("TextLabel")
     lbl.Size = UDim2.new(1,-4,0.55,0); lbl.Position = UDim2.new(0,2,0,2)
     lbl.BackgroundTransparency = 1; lbl.TextColor3 = color
     lbl.TextScaled = true; lbl.Font = Enum.Font.SourceSansBold
     lbl.Text = npcType == "Good" and "👮 好人" or "💀 坏人"; lbl.BorderSizePixel = 0; lbl.Parent = bg
+    trackInstance(lbl)
 
     local info = Instance.new("TextLabel")
     info.Size = UDim2.new(1,-4,0.4,0); info.Position = UDim2.new(0,2,0.55,2)
     info.BackgroundTransparency = 1; info.TextColor3 = Color3.fromRGB(255,255,255)
     info.TextScaled = true; info.Font = Enum.Font.SourceSans; info.Text = ""; info.BorderSizePixel = 0; info.Parent = bg
+    trackInstance(info)
 
     ESPObjects[character] = {Highlight=hl, Billboard=bb, Label=lbl, InfoLine=info, Head=head, Root=root}
     if npcType == "Good" then Stats.Good = Stats.Good + 1 else Stats.Bad = Stats.Bad + 1 end
@@ -451,11 +511,10 @@ if s and r then
     WindUI = r
     pcall(function() WindUI:SetTheme("Dark") end)
 
-    -- Popup
     WindUI:Popup({
-        Title = "机场安全透视 v11.2",
+        Title = "机场安全透视 v11.3",
         Icon = "solar:info-square-bold",
-        Content = "👁 透视高亮 - Highlight穿墙显示所有NPC\n🔍 智能识别 - 多维度区分好人(绿)与坏人(红)\n🏷 头顶标签 - 显示类型/距离/血量\n🔧 自定义快捷键 - 自由绑定按键\n💾 配置保存 - 自动保存/读取设置\n🎨 主题系统 - 16种内置主题 + 自定义调色\n✨ 粒子背景 - 50粒子(更大更密)紧约束窗口内飘浮\n🌀 增强毛玻璃 - Acrylic+透明叠加\n\n⚠️ 加载后所有功能默认关闭，需手动开启",
+        Content = "👁 透视高亮 - Highlight穿墙显示所有NPC\n🔍 智能识别 - 多维度区分好人(绿)与坏人(红)\n🏷 头顶标签 - 显示类型/距离/血量\n🔧 自定义快捷键 - 自由绑定按键\n💾 配置保存 - 自动保存/读取设置\n🎨 主题系统 - 16种内置主题 + 自定义调色\n✨ 粒子背景 - 50粒子(更大更密)紧约束窗口内飘浮\n🌀 增强毛玻璃 - Acrylic+透明叠加\n🧹 清理系统 - 脚本停止后自动清除所有残留\n\n⚠️ 加载后所有功能默认关闭，需手动开启",
         Buttons = {
             { Title = "取消", Callback = function() end, Variant = "Tertiary" },
             { Title = "确认加载", Icon = "solar:arrow-right-bold", Callback = function()
@@ -463,7 +522,7 @@ if s and r then
                 pcall(function()
                     WindUI:Notify({
                         Title = "✅ 已加载",
-                        Content = "⌨️ 按 RightShift 打开菜单\n所有功能默认关闭",
+                        Content = "⌨️ 按 RightShift 打开菜单",
                         Duration = 4, Icon = "solar:bell-bold",
                     })
                 end)
@@ -519,9 +578,7 @@ if s and r then
 
             if Keybinds.ESP and Keybinds.ESP ~= "" and keyName == Keybinds.ESP then
                 Settings.Enabled = not Settings.Enabled
-                pcall(function()
-                    if Controls.ESPToggle then Controls.ESPToggle:Set(Settings.Enabled) end
-                end)
+                pcall(function() if Controls.ESPToggle then Controls.ESPToggle:Set(Settings.Enabled) end end)
                 updateAllESP()
                 if Settings.Enabled then task.spawn(scanNPCs) end
                 return
@@ -529,9 +586,7 @@ if s and r then
 
             if Keybinds.BadOnly and Keybinds.BadOnly ~= "" and keyName == Keybinds.BadOnly then
                 Settings.BadOnly = not Settings.BadOnly
-                pcall(function()
-                    if Controls.BadOnlyToggle then Controls.BadOnlyToggle:Set(Settings.BadOnly) end
-                end)
+                pcall(function() if Controls.BadOnlyToggle then Controls.BadOnlyToggle:Set(Settings.BadOnly) end end)
                 updateAllESP()
                 return
             end
@@ -557,234 +612,88 @@ if s and r then
                 HideSearchBar = true,
             })
         end)
-        if not ok or not win then
-            print("[机场安全透视] 窗口创建失败:", ok)
-            return
-        end
+        if not ok or not win then print("[机场安全透视] 窗口创建失败:", ok); return end
         WindowRef = win
-
         pcall(function() WindUI.TransparencyValue = 0.22 end)
 
-        -- ===== 主控面板 =====
         local mainTab = win:Tab({Title="主控面板", Icon="solar:slider-vertical-bold"})
         mainTab:Paragraph({Title="👁 透视控制"})
-        Controls.ESPToggle = mainTab:Toggle({
-            Flag = "ESPToggle", Title = "透视开关", Value = false,
-            Callback = function(v) Settings.Enabled = v; updateAllESP(); if v then task.spawn(scanNPCs) end end
-        })
-        Controls.BadOnlyToggle = mainTab:Toggle({
-            Flag = "BadOnlyToggle", Title = "仅显示坏人", Value = false,
-            Callback = function(v) Settings.BadOnly = v; updateAllESP() end
-        })
+        Controls.ESPToggle = mainTab:Toggle({Flag="ESPToggle", Title="透视开关", Value=false, Callback=function(v) Settings.Enabled=v; updateAllESP(); if v then task.spawn(scanNPCs) end end})
+        Controls.BadOnlyToggle = mainTab:Toggle({Flag="BadOnlyToggle", Title="仅显示坏人", Value=false, Callback=function(v) Settings.BadOnly=v; updateAllESP() end})
         mainTab:Divider()
         mainTab:Paragraph({Title="📐 显示设置"})
-        Controls.DistanceToggle = mainTab:Toggle({
-            Flag = "DistanceToggle", Title = "显示距离", Value = false,
-            Callback = function(v) Settings.ShowDistance = v end
-        })
-        Controls.HealthToggle = mainTab:Toggle({
-            Flag = "HealthToggle", Title = "显示血量", Value = false,
-            Callback = function(v) Settings.ShowHealth = v end
-        })
+        Controls.DistanceToggle = mainTab:Toggle({Flag="DistanceToggle", Title="显示距离", Value=false, Callback=function(v) Settings.ShowDistance=v end})
+        Controls.HealthToggle = mainTab:Toggle({Flag="HealthToggle", Title="显示血量", Value=false, Callback=function(v) Settings.ShowHealth=v end})
         mainTab:Divider()
-        Controls.RangeSlider = mainTab:Slider({
-            Flag = "RangeSlider", Title = "最大探测距离", Step = 50,
-            Value = { Min = 50, Max = 1000, Default = 500 },
-            Width = 200, IsTextbox = true,
-            Callback = function(v) Settings.MaxRange = v end
-        })
+        Controls.RangeSlider = mainTab:Slider({Flag="RangeSlider", Title="最大探测距离", Step=50, Value={Min=50, Max=1000, Default=500}, Width=200, IsTextbox=true, Callback=function(v) Settings.MaxRange=v end})
 
-        -- ===== 功能设置 =====
         local funcTab = win:Tab({Title="功能设置", Icon="solar:settings-bold"})
-        funcTab:Paragraph({Title="🔑 快捷键设置（点击后按键盘绑定）"})
-        Controls.ESPKeybind = funcTab:Keybind({
-            Flag = "ESPKeybind", Title = "透视开关快捷键", Value = "",
-            Callback = function(key) Keybinds.ESP = key end
-        })
-        Controls.BadOnlyKeybind = funcTab:Keybind({
-            Flag = "BadOnlyKeybind", Title = "仅坏人模式快捷键", Value = "",
-            Callback = function(key) Keybinds.BadOnly = key end
-        })
+        funcTab:Paragraph({Title="🔑 快捷键设置"})
+        Controls.ESPKeybind = funcTab:Keybind({Flag="ESPKeybind", Title="透视开关快捷键", Value="", Callback=function(key) Keybinds.ESP=key end})
+        Controls.BadOnlyKeybind = funcTab:Keybind({Flag="BadOnlyKeybind", Title="仅坏人模式快捷键", Value="", Callback=function(key) Keybinds.BadOnly=key end})
         funcTab:Divider()
         funcTab:Paragraph({Title="💡 提示", Desc="窗口快捷键在UI设置中绑定（默认 RightShift）"})
 
-        -- ===== UI设置（含主题+粒子+毛玻璃） =====
         local uiTab = win:Tab({Title="UI设置", Icon="solar:monitor-bold"})
         uiTab:Paragraph({Title="⚙️ 界面设置"})
-        Controls.WindowKeybind = uiTab:Keybind({
-            Flag = "WindowKeybind", Title = "窗口开关快捷键", Value = "RightShift",
-            Callback = function(key)
-                Keybinds.Window = key
-                if WindowRef then pcall(function() WindowRef:SetToggleKey(Enum.KeyCode[key]) end) end
-            end
-        })
-        Controls.FloatingBtnToggle = uiTab:Toggle({
-            Flag = "FloatingBtnToggle", Title = "显示悬浮按钮", Value = IsMobile,
-            Callback = function(v) if FloatingButtonGui then FloatingButtonGui.Enabled = v end end
-        })
+        Controls.WindowKeybind = uiTab:Keybind({Flag="WindowKeybind", Title="窗口开关快捷键", Value="RightShift", Callback=function(key) Keybinds.Window=key; if WindowRef then pcall(function() WindowRef:SetToggleKey(Enum.KeyCode[key]) end) end end})
+        Controls.FloatingBtnToggle = uiTab:Toggle({Flag="FloatingBtnToggle", Title="显示悬浮按钮", Value=IsMobile, Callback=function(v) if FloatingButtonGui then FloatingButtonGui.Enabled=v end end})
         uiTab:Divider()
-
         uiTab:Paragraph({Title="🌀 背景效果"})
-        Controls.ParticlesToggle = uiTab:Toggle({
-            Flag = "ParticlesToggle", Title = "浮动粒子背景", Value = true,
-            Callback = function(v)
-                Settings.Particles = v
-                if v then createParticles() else destroyParticles() end
-            end
-        })
+        Controls.ParticlesToggle = uiTab:Toggle({Flag="ParticlesToggle", Title="浮动粒子背景", Value=true, Callback=function(v) Settings.Particles=v; if v then createParticles() else destroyParticles() end end})
         uiTab:Divider()
-
         uiTab:Paragraph({Title="✨ 窗口效果"})
-        Controls.AcrylicToggle = uiTab:Toggle({
-            Flag = "AcrylicToggle", Title = "毛玻璃效果", Value = true,
-            Callback = function(v) pcall(function() WindUI:ToggleAcrylic(v) end) end
-        })
-        Controls.TransparencyToggle = uiTab:Toggle({
-            Flag = "TransparencyToggle", Title = "透明背景增强毛玻璃", Value = true,
-            Callback = function(v) if WindowRef then pcall(function() WindowRef:ToggleTransparency(v) end) end end
-        })
+        Controls.AcrylicToggle = uiTab:Toggle({Flag="AcrylicToggle", Title="毛玻璃效果", Value=true, Callback=function(v) pcall(function() WindUI:ToggleAcrylic(v) end) end})
+        Controls.TransparencyToggle = uiTab:Toggle({Flag="TransparencyToggle", Title="透明背景增强毛玻璃", Value=true, Callback=function(v) if WindowRef then pcall(function() WindowRef:ToggleTransparency(v) end) end end})
         uiTab:Divider()
-
-        -- ===== 主题系统 =====
         uiTab:Paragraph({Title="🎨 主题系统", Desc="16种内置主题，切换时粒子颜色自动适配"})
-        local allThemes = {}
-        pcall(function() allThemes = WindUI:GetThemes() end)
-        local themeNames = {}
-        for name, _ in pairs(allThemes) do
-            table.insert(themeNames, name)
-        end
-        table.sort(themeNames)
-
-        Controls.ThemeDropdown = uiTab:Dropdown({
-            Flag = "ThemeDropdown",
-            Title = "选择主题",
-            Values = themeNames,
-            Value = "Dark",
-            Callback = function(selected)
-                if selected then
-                    Settings.CurrentTheme = selected
-                    pcall(function() WindUI:SetTheme(selected) end)
-                    updateParticleColor()
-                end
-            end
-        })
+        local allThemes = {}; pcall(function() allThemes=WindUI:GetThemes() end)
+        local themeNames = {}; for name,_ in pairs(allThemes) do table.insert(themeNames, name) end; table.sort(themeNames)
+        Controls.ThemeDropdown = uiTab:Dropdown({Flag="ThemeDropdown", Title="选择主题", Values=themeNames, Value="Dark", Callback=function(selected) if selected then Settings.CurrentTheme=selected; pcall(function() WindUI:SetTheme(selected) end); updateParticleColor() end end})
         uiTab:Divider()
         uiTab:Paragraph({Title="💡 提示", Desc="粒子背景 + 毛玻璃 + 透明背景叠加效果最佳\n50个粒子在窗口区域内飘浮"})
 
-        -- ===== 信息统计 =====
         local statsTab = win:Tab({Title="信息统计", Icon="solar:chart-bold"})
         TabElements.GoodP = statsTab:Paragraph({Title="🟢 好人: 0"})
         TabElements.BadP = statsTab:Paragraph({Title="🔴 坏人: 0"})
         TabElements.TotalP = statsTab:Paragraph({Title="📊 总计: 0"})
         statsTab:Divider()
-        TabElements.ScanI = statsTab:Input({Title = "扫描状态", Value = "等待中...", Locked = true})
+        TabElements.ScanI = statsTab:Input({Title="扫描状态", Value="等待中...", Locked=true})
         statsTab:Divider()
-        TabElements.DebugI = statsTab:Input({
-            Title = "📋 调试日志", Value = "等待检测...", Locked = true,
-            Desc = "每次扫描会显示NPC的属性信息"
-        })
+        TabElements.DebugI = statsTab:Input({Title="📋 调试日志", Value="等待检测...", Locked=true, Desc="每次扫描会显示NPC的属性信息"})
 
-        -- ===== 配置管理 =====
         local configTab = win:Tab({Title="配置管理", Icon="solar:diskette-bold"})
         configTab:Paragraph({Title="💾 配置管理", Desc="保存/加载你的所有设置"})
-        local ConfigNameInput = configTab:Input({
-            Flag = "ConfigNameInput", Title = "配置名称", Value = "default",
-            Icon = "solar:file-text-bold",
-            Callback = function(value) ConfigName = value end
-        })
+        local ConfigNameInput = configTab:Input({Flag="ConfigNameInput", Title="配置名称", Value="default", Icon="solar:file-text-bold", Callback=function(value) ConfigName=value end})
         configTab:Space()
-        local ConfigManager = WindowRef.ConfigManager
-        local AllConfigs = {}
-        pcall(function() AllConfigs = ConfigManager:AllConfigs() end)
-        local DefaultValue = nil
-        pcall(function()
-            for _, v in ipairs(AllConfigs) do
-                if v == "default" then DefaultValue = "default"; break end
-            end
-        end)
-        local AllConfigsDropdown = configTab:Dropdown({
-            Title = "已有配置", Desc = "选择要加载的配置",
-            Values = AllConfigs, Value = DefaultValue,
-            Callback = function(value)
-                if value then ConfigName = value; pcall(function() ConfigNameInput:Set(value) end) end
-            end
-        })
+        local ConfigManager = WindowRef.ConfigManager; local AllConfigs={}; pcall(function() AllConfigs=ConfigManager:AllConfigs() end)
+        local DefaultValue=nil; pcall(function() for _,v in ipairs(AllConfigs) do if v=="default" then DefaultValue="default"; break end end end)
+        local AllConfigsDropdown = configTab:Dropdown({Title="已有配置", Desc="选择要加载的配置", Values=AllConfigs, Value=DefaultValue, Callback=function(value) if value then ConfigName=value; pcall(function() ConfigNameInput:Set(value) end) end end})
         configTab:Space()
-        configTab:Button({
-            Title = "💾 保存配置", Icon = "solar:check-circle-bold", Justify = "Center",
-            Color = Color3.fromHex("#305dff"),
-            Callback = function()
-                if not ConfigManager then
-                    pcall(function() WindUI:Notify({Title="错误", Content="配置系统不可用", Duration=3}) end)
-                    return
-                end
-                pcall(function()
-                    local config = ConfigManager:Config(ConfigName)
-                    if config and config:Save() then
-                        WindUI:Notify({Title="✅ 配置已保存", Content="配置 '" .. ConfigName .. "' 已保存", Icon="solar:check-circle-bold", Duration=3})
-                        AllConfigsDropdown:Refresh(ConfigManager:AllConfigs())
-                    end
-                end)
-            end
-        })
+        configTab:Button({Title="💾 保存配置", Icon="solar:check-circle-bold", Justify="Center", Color=Color3.fromHex("#305dff"), Callback=function() if not ConfigManager then return end; pcall(function() local c=ConfigManager:Config(ConfigName); if c and c:Save() then WindUI:Notify({Title="✅ 配置已保存", Content="配置 '"..ConfigName.."' 已保存", Icon="solar:check-circle-bold", Duration=3}); AllConfigsDropdown:Refresh(ConfigManager:AllConfigs()) end end) end})
         configTab:Space()
-        configTab:Button({
-            Title = "📂 加载配置", Icon = "solar:refresh-circle-bold", Justify = "Center",
-            Color = Color3.fromHex("#10C550"),
-            Callback = function()
-                if not ConfigManager then
-                    pcall(function() WindUI:Notify({Title="错误", Content="配置系统不可用", Duration=3}) end)
-                    return
-                end
-                pcall(function()
-                    local config = ConfigManager:CreateConfig(ConfigName, false)
-                    if config and config:Load() then
-                        WindUI:Notify({Title="✅ 配置已加载", Content="配置 '" .. ConfigName .. "' 已加载", Icon="solar:refresh-circle-bold", Duration=3})
-                    end
-                end)
-            end
-        })
+        configTab:Button({Title="📂 加载配置", Icon="solar:refresh-circle-bold", Justify="Center", Color=Color3.fromHex("#10C550"), Callback=function() if not ConfigManager then return end; pcall(function() local c=ConfigManager:CreateConfig(ConfigName,false); if c and c:Load() then WindUI:Notify({Title="✅ 配置已加载", Content="配置 '"..ConfigName.."' 已加载", Icon="solar:refresh-circle-bold", Duration=3}) end end) end})
         configTab:Space()
-        configTab:Button({
-            Title = "🗑️ 删除配置", Icon = "solar:trash-bin-trash-bold", Justify = "Center",
-            Color = Color3.fromHex("#ff3040"),
-            Callback = function()
-                if not ConfigManager then return end
-                pcall(function()
-                    local config = ConfigManager:Config(ConfigName)
-                    if config and config:Delete() then
-                        WindUI:Notify({Title="🗑️ 配置已删除", Content="配置 '" .. ConfigName .. "' 已删除", Icon="solar:trash-bin-trash-bold", Duration=3})
-                        AllConfigsDropdown:Refresh(ConfigManager:AllConfigs())
-                    end
-                end)
-            end
-        })
+        configTab:Button({Title="🗑️ 删除配置", Icon="solar:trash-bin-trash-bold", Justify="Center", Color=Color3.fromHex("#ff3040"), Callback=function() if not ConfigManager then return end; pcall(function() local c=ConfigManager:Config(ConfigName); if c and c:Delete() then WindUI:Notify({Title="🗑️ 配置已删除", Content="配置 '"..ConfigName.."' 已删除", Icon="solar:trash-bin-trash-bold", Duration=3}); AllConfigsDropdown:Refresh(ConfigManager:AllConfigs()) end end) end})
         configTab:Divider()
-        configTab:Paragraph({Title="💡 提示", Desc="所有带 Flag 的元素会自动保存/恢复\n包括：透视开关、快捷键、滑块、主题等"})
+        configTab:Paragraph({Title="💡 提示", Desc="所有带 Flag 的元素会自动保存/恢复\n🧹 脚本停止后会自动清除所有残留\n💊 手动清理: 在控制台输入 _G.CleanupAirportESP()"})
 
         task.spawn(function()
             task.wait(1)
-            pcall(function()
-                if ConfigManager then
-                    local config = ConfigManager:CreateConfig("default", true)
-                    if config then print("[机场安全透视] 自动加载配置: default") end
-                end
-            end)
+            pcall(function() if ConfigManager then local config = ConfigManager:CreateConfig("default", true) end end)
             createParticles()
         end)
 
-        -- ===== 关于 =====
         local aboutTab = win:Tab({Title="关于", Icon="solar:info-square-bold"})
-        aboutTab:Paragraph({Title="机场安全透视 v11.2", Desc="用于分辨好人与坏人的透视脚本"})
+        aboutTab:Paragraph({Title="机场安全透视 v11.3", Desc="用于分辨好人与坏人的透视脚本"})
         aboutTab:Divider()
         aboutTab:Paragraph({Title="👤 作者", Desc="b站英吉利超入_"})
         aboutTab:Divider()
         local usage = IsMobile and "手机: 点击悬浮按钮" or "PC: 按 RightShift 打开菜单"
         aboutTab:Paragraph({Title="💡 使用说明", Desc=usage})
         aboutTab:Paragraph({Title="⚠️ 提示", Desc="所有功能默认关闭，请在菜单中手动开启"})
-        aboutTab:Paragraph({Title="✨ 高级功能", Desc="配置保存 | 16主题 | 粒子背景 | 毛玻璃 | 调试面板"})
+        aboutTab:Paragraph({Title="🧹 清理", Desc="执行 _G.CleanupAirportESP() 清除所有残留"})
 
-        -- 手机悬浮按钮
         if IsMobile then
             task.spawn(function()
                 task.wait(1)
@@ -792,63 +701,58 @@ if s and r then
                     FloatingButtonGui = Instance.new("ScreenGui")
                     FloatingButtonGui.Name = "AirportESP_Btn"; FloatingButtonGui.Enabled = true
                     FloatingButtonGui.ResetOnSpawn = false; FloatingButtonGui.Parent = CoreGui
+                    trackInstance(FloatingButtonGui)
                     local btn = Instance.new("ImageButton")
                     btn.Size = UDim2.new(0,50,0,50); btn.Position = UDim2.new(0.9,-25,0.8,-25)
                     btn.BackgroundColor3 = Color3.fromRGB(0,180,80); btn.BackgroundTransparency = 0.2
                     btn.BorderSizePixel = 0; btn.Parent = FloatingButtonGui
+                    trackInstance(btn)
                     local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0,25); c.Parent = btn
+                    trackInstance(c)
                     local t = Instance.new("TextLabel")
                     t.Size = UDim2.new(1,0,1,0); t.BackgroundTransparency = 1; t.Text = "👁"
                     t.TextScaled = true; t.Font = Enum.Font.SourceSansBold; t.TextColor3 = Color3.fromRGB(255,255,255); t.Parent = btn
+                    trackInstance(t)
                     local dragging,dragStart,startPos = false,nil,nil
-                    btn.InputBegan:Connect(function(input)
-                        if input.UserInputType==Enum.UserInputType.Touch or input.UserInputType==Enum.UserInputType.MouseButton1 then
-                            dragging=true; dragStart=input.Position; startPos=btn.Position
-                        end
-                    end)
-                    btn.InputChanged:Connect(function(input)
-                        if dragging and (input.UserInputType==Enum.UserInputType.Touch or input.UserInputType==Enum.UserInputType.MouseMovement) then
-                            btn.Position = UDim2.new(startPos.X.Scale,startPos.X.Offset+input.Position.X-dragStart.X,startPos.Y.Scale,startPos.Y.Offset+input.Position.Y-dragStart.Y)
-                        end
-                    end)
-                    btn.InputEnded:Connect(function(input)
-                        if input.UserInputType==Enum.UserInputType.Touch or input.UserInputType==Enum.UserInputType.MouseButton1 then dragging=false end
-                    end)
-                    btn.MouseButton1Click:Connect(function()
-                        if WindowRef then pcall(function() WindowRef:Toggle() end) end
-                    end)
+                    btn.InputBegan:Connect(function(input) if input.UserInputType==Enum.UserInputType.Touch or input.UserInputType==Enum.UserInputType.MouseButton1 then dragging=true; dragStart=input.Position; startPos=btn.Position end end)
+                    btn.InputChanged:Connect(function(input) if dragging and (input.UserInputType==Enum.UserInputType.Touch or input.UserInputType==Enum.UserInputType.MouseMovement) then btn.Position = UDim2.new(startPos.X.Scale,startPos.X.Offset+input.Position.X-dragStart.X,startPos.Y.Scale,startPos.Y.Offset+input.Position.Y-dragStart.Y) end end)
+                    btn.InputEnded:Connect(function(input) if input.UserInputType==Enum.UserInputType.Touch or input.UserInputType==Enum.UserInputType.MouseButton1 then dragging=false end end)
+                    btn.MouseButton1Click:Connect(function() if WindowRef then pcall(function() WindowRef:Toggle() end) end end)
                 end)
             end)
         end
     end
 
-    print("[机场安全透视] v11.2 已加载 | 作者: b站英吉利超入_")
+    print("[机场安全透视] v11.3 已加载 | 作者: b站英吉利超入_")
+    print("[机场安全透视] 清理命令: _G.CleanupAirportESP()")
 else
     print("[机场安全透视] WindUI 加载失败，使用原生模式")
     local msg = Instance.new("Message")
-    msg.Text = "⚠️ WindUI 加载失败，使用原生模式 | 点击绿色按钮开关透视"
+    msg.Text = "⚠️ WindUI 加载失败，使用原生模式"
     msg.Parent = Workspace
     task.delay(5, function() msg:Destroy() end)
     local btnGui = Instance.new("ScreenGui")
     btnGui.Name = "AirportESP_Btn"; btnGui.ResetOnSpawn = false; btnGui.Parent = CoreGui
+    trackInstance(btnGui)
     local btn = Instance.new("ImageButton")
     btn.Size = UDim2.new(0,50,0,50); btn.Position = UDim2.new(0.9,-25,0.8,-25)
     btn.BackgroundColor3 = Color3.fromRGB(0,180,80); btn.BackgroundTransparency = 0.2; btn.BorderSizePixel = 0; btn.Parent = btnGui
+    trackInstance(btn)
     local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0,25); c.Parent = btn
+    trackInstance(c)
     local t = Instance.new("TextLabel")
     t.Size = UDim2.new(1,0,1,0); t.BackgroundTransparency = 1; t.Text = "👁"
     t.TextScaled = true; t.Font = Enum.Font.SourceSansBold; t.TextColor3 = Color3.fromRGB(255,255,255); t.Parent = btn
+    trackInstance(t)
     btn.MouseButton1Click:Connect(function()
         Settings.Enabled = not Settings.Enabled; updateAllESP()
         btn.BackgroundColor3 = Settings.Enabled and Color3.fromRGB(255,50,50) or Color3.fromRGB(0,180,80)
         if Settings.Enabled then task.spawn(scanNPCs) end
     end)
     task.spawn(function()
-        while true do
-            pcall(function() cleanESP(); scanNPCs() end)
-            task.wait(3)
-        end
+        while true do pcall(function() cleanESP(); scanNPCs() end) task.wait(3) end
     end)
 end
 
 print("[机场安全透视] 脚本加载完成")
+print("[机场安全透视] 清除残留: 在控制台输入 _G.CleanupAirportESP()")
