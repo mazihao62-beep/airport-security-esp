@@ -1,13 +1,12 @@
 --[[
-	机场安全透视脚本 v5.5 (Airport Security ESP)
+	机场安全透视脚本 v5.5.1 (Airport Security ESP)
 	作者: b站英吉利超入_
 	
 	更新日志:
+	v5.5.1 - 移除原生模式中的Roblox原生通知
+	  🐛 问题: 原生回退模式用了StarterGui:SetCore("SendNotification")
+	  🔧 方案: 改用Instance.new("Message")替换,彻底移除所有Roblox原生弹窗
 	v5.5 - 彻底重写NPC检测 - 5种方法同时扫描,非Humanoid兼容
-	  🐛 核心问题: 游戏NPC可能没有Humanoid组件
-	  🔧 方案: 5种方法同时扫描角色类对象
-	  👁 新增: 找不到目标时自动识别Workspace里所有角色
-	  📝 新增: 调试日志输出所有发现的Humanoid + 角色统计
 	v5.4 - 修复信息统计文字错乱问题
 	v5.3 - 修复Slider滑块不可见 + 替换原生通知为WindUI通知
 	v5.2 - 默认RightShift开关窗口,彻底解决闪烁问题
@@ -24,25 +23,19 @@ local Success, WindUI = pcall(function()
 end)
 
 if not Success or not WindUI then
-	-- ===== WindUI加载失败 → 原生模式 =====
-	local StarterGui = game:GetService("StarterGui")
+	-- ===== WindUI加载失败 → 原生模式 (无任何Roblox原生通知) =====
 	local Players = game:GetService("Players")
 	local Workspace = game:GetService("Workspace")
 	local CoreGui = game:GetService("CoreGui")
 	local UserInputService = game:GetService("UserInputService")
 	local LocalPlayer = Players.LocalPlayer
 	
+	-- 用Message替代所有Roblox原生通知
 	local msg = Instance.new("Message")
-	msg.Text = "🛡️ 机场安全透视 - 加载中... (WindUI加载失败,使用原生模式)"
+	msg.Text = "🛡️ 机场安全透视 - 原生模式已加载 | 按RightShift开菜单"
 	msg.Parent = CoreGui
-	task.wait(1)
+	task.wait(2.5)
 	msg:Destroy()
-	
-	StarterGui:SetCore("SendNotification", {
-		Title = "🛡️ 机场安全透视 (原生模式)",
-		Text = "脚本已加载 | 按RightShift开菜单",
-		Duration = 5,
-	})
 	
 	-- 原生模式快速ESP
 	local ESPData = {}
@@ -108,7 +101,6 @@ if not Success or not WindUI then
 		return bb, lbl, info
 	end
 	
-	-- 分类器 (简化版)
 	local function classify(obj)
 		local name = obj.Name or ""
 		local path = obj:GetFullName() or ""
@@ -124,7 +116,6 @@ if not Success or not WindUI then
 	task.spawn(function()
 		while task.wait(1.5) do
 			pcall(function()
-				-- 扫描所有带Humanoid的对象
 				for _, hum in ipairs(Workspace:GetDescendants()) do
 					if hum:IsA("Humanoid") and hum.Parent and hum.Health > 0 then
 						local char = hum.Parent
@@ -140,7 +131,6 @@ if not Success or not WindUI then
 						end
 					end
 				end
-				-- 清理
 				for obj, data in pairs(ESPData) do
 					if not obj.Parent then
 						if data.HL then data.HL:Destroy() end
@@ -152,7 +142,7 @@ if not Success or not WindUI then
 		end
 	end)
 	
-	print("✅ 机场安全ESP v5.5 (原生模式) 已加载")
+	print("✅ 机场安全ESP v5.5.1 (原生模式) 已加载 - 无Roblox原生通知")
 	return
 end
 
@@ -167,7 +157,7 @@ local loadConfirmed = false
 local popupClosed = false
 
 WindUI:Popup({
-	Title = "🛡️ 机场安全透视 v5.5",
+	Title = "🛡️ 机场安全透视 v5.5.1",
 	Icon = "solar:shield-warning-bold",
 	Content = "是否加载机场安全透视脚本？\n\n主要功能：\n• 自动识别好人/坏人\n• 透视穿墙高亮\n• 头顶标签显示\n• 自定义快捷键\n\n按 RightShift 打开菜单",
 	Buttons = {
@@ -217,6 +207,7 @@ local IsMobile = pcall(function()
 	return UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 end) and UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled or false
 
+-- ===== 纯WindUI通知 (无Roblox原生) =====
 WindUI:Notify({
 	Title = "✅ 已确认加载",
 	Content = "按 RightShift 打开菜单 | 在功能设置中绑定快捷键",
@@ -238,7 +229,7 @@ local Settings = {
 }
 
 local ESPData = {}
-local DebugLog = {} -- 调试日志
+local DebugLog = {}
 
 -- ========================================================================
 -- ===== 创建窗口 =====
@@ -521,7 +512,6 @@ StatsGroup:Space()
 
 StatsGroup:Section({ Title = "调试信息", TextSize = 14 })
 
--- 调试日志 (显示最近几次扫描结果)
 local DebugInput = StatsGroup:Input({
 	Title = "扫描状态",
 	Value = "等待扫描...",
@@ -533,7 +523,7 @@ local DebugInput = StatsGroup:Input({
 -- ========================================================================
 local AboutTab = Window:Tab({ Title = "关于", Icon = "solar:info-square-bold" })
 
-AboutTab:Section({ Title = "机场安全透视 v5.5", TextSize = 24 })
+AboutTab:Section({ Title = "机场安全透视 v5.5.1", TextSize = 24 })
 AboutTab:Space()
 AboutTab:Paragraph({
 	Title = "👤 作者",
@@ -557,20 +547,17 @@ AboutTab:Paragraph({
 -- ======================== ESP 核心系统 ================================
 -- ======================== v5.5 彻底重写 ================================
 
--- ===== 角色检测函数 (v5.5 核心改进) =====
--- 判断一个对象是否"像角色" (不依赖Humanoid)
+-- ===== 角色检测函数 (不依赖Humanoid) =====
 local function isCharacterModel(obj)
 	if not obj or not obj:IsA("Model") then return false end
 	if obj == LocalPlayer.Character then return false end
 	if not obj.Parent then return false end
 	
-	-- 检查是否有角色典型部件
 	local hasHead = obj:FindFirstChild("Head") ~= nil
 	local hasHRP = obj:FindFirstChild("HumanoidRootPart") ~= nil
 	local hasTorso = obj:FindFirstChild("Torso") ~= nil
 	local hasHumanoid = obj:FindFirstChildOfClass("Humanoid") ~= nil
 	
-	-- 至少满足以下条件之一才视为角色
 	return hasHead or hasHRP or (hasTorso and hasHumanoid)
 end
 
@@ -643,15 +630,13 @@ local function createHighlight(char, color)
 	return hl
 end
 
--- ===== 分类器 (v5.5 改进) =====
--- 坏人关键词优先, 确保"NPC"关键词被识别为坏人
+-- ===== 分类器 =====
 local function classifyCharacter(obj)
 	if not obj then return "Unknown", Color3.fromRGB(180, 180, 180), "❓ Unknown" end
 	
 	local name = obj.Name or ""
 	local fullPath = obj:GetFullName() or ""
 	
-	-- 先看路径中的模板标识
 	if fullPath:find("NPCTemplate") and not fullPath:find("AgentTemplate") then
 		return "Bad", Color3.fromRGB(255, 50, 50), "💀 Threat"
 	end
@@ -659,7 +644,6 @@ local function classifyCharacter(obj)
 		return "Good", Color3.fromRGB(0, 255, 100), "👮 Agent"
 	end
 	
-	-- 坏人关键词 (优先匹配)
 	local badPatterns = {
 		"Terrorist", "Enemy", "Hostile", "Threat", "Criminal", 
 		"Suspect", "Bandit", "Robber", "Bomber", "Invader", 
@@ -679,7 +663,6 @@ local function classifyCharacter(obj)
 		if name:find(pat, 1, true) then return "Good", Color3.fromRGB(0, 255, 100), "👮 Agent" end
 	end
 	
-	-- 路径中检查是否在NPCWorkspace下
 	if fullPath:find("NPCWorkspace") then
 		return "Bad", Color3.fromRGB(255, 50, 50), "💀 Threat"
 	end
@@ -687,27 +670,22 @@ local function classifyCharacter(obj)
 	return "Unknown", Color3.fromRGB(180, 180, 180), "❓ Unknown"
 end
 
--- ===== 获取Humanoid的通用方法 =====
 local function getHumanoid(char)
-	local hum = char:FindFirstChildOfClass("Humanoid")
-	return hum
+	return char:FindFirstChildOfClass("Humanoid")
 end
 
--- ===== 获取RootPart的通用方法 =====
 local function getRootPart(char)
 	return char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso") or char:FindFirstChild("Head")
 end
 
--- ===== 主扫描循环 (v5.5 完全重写) =====
--- 使用5种方法同时扫描,兼容无Humanoid的角色
-
+-- ===== 主扫描循环 =====
 local lastDebugMsg = "等待扫描..."
 local scanCount = 0
 local totalFound = 0
 
 task.spawn(function()
 	print("=" .. string.rep("=", 50) .. "=")
-	print("[ESP] 🛡️ 机场安全透视 v5.5 扫描系统启动")
+	print("[ESP] 🛡️ 机场安全透视 v5.5.1 扫描系统启动")
 	print("[ESP] 玩家: " .. (LocalPlayer.Name or "未知"))
 	print("[ESP] Workspace子级: " .. #Workspace:GetChildren())
 	print("=" .. string.rep("=", 50) .. "=")
@@ -717,9 +695,7 @@ task.spawn(function()
 			scanCount = scanCount + 1
 			local newFound = 0
 			
-			-- ████████████████████████████████████████████████████
-			-- Method 1: 扫描所有Humanoid (标准Roblox角色)
-			-- ████████████████████████████████████████████████████
+			-- Method 1: 扫描Humanoid
 			local humCount = 0
 			for _, hum in ipairs(Workspace:GetDescendants()) do
 				if hum:IsA("Humanoid") and hum.Parent then
@@ -752,14 +728,12 @@ task.spawn(function()
 				end
 			end
 			
-			-- ████████████████████████████████████████████████████
-			-- Method 2: 扫描带Head的Model (无Humanoid兼容)
-			-- ████████████████████████████████████████████████████
+			-- Method 2: 扫描带Head的Model
 			for _, part in ipairs(Workspace:GetDescendants()) do
 				if part:IsA("Part") and part.Name == "Head" and part.Parent then
 					local char = part.Parent
 					if char:IsA("Model") and not ESPData[char] and char ~= LocalPlayer.Character then
-						if not char:FindFirstChildOfClass("Humanoid") then -- 避免重复M1
+						if not char:FindFirstChildOfClass("Humanoid") then
 							local myRoot = getRootPart(LocalPlayer.Character)
 							local objRoot = getRootPart(char) or part
 							if myRoot and objRoot then
@@ -787,9 +761,7 @@ task.spawn(function()
 				end
 			end
 			
-			-- ████████████████████████████████████████████████████
-			-- Method 3: 扫描HumanoidRootPart的Model (备用)
-			-- ████████████████████████████████████████████████████
+			-- Method 3: 扫描HumanoidRootPart
 			if newFound == 0 then
 				for _, part in ipairs(Workspace:GetDescendants()) do
 					if (part:IsA("Part") or part:IsA("MeshPart")) and part.Name == "HumanoidRootPart" and part.Parent then
@@ -821,18 +793,16 @@ task.spawn(function()
 				end
 			end
 			
-			-- 清理已销毁对象
-			local removed = 0
+			-- 清理
 			for obj, data in pairs(ESPData) do
 				if not obj.Parent then
 					if data.Highlight then data.Highlight:Destroy() end
 					if data.Billboard then data.Billboard:Destroy() end
 					ESPData[obj] = nil
-					removed = removed + 1
 				end
 			end
 			
-			-- 更新所有标签
+			-- 更新标签
 			if LocalPlayer.Character then
 				local myRoot = getRootPart(LocalPlayer.Character)
 				for obj, data in pairs(ESPData) do
@@ -863,14 +833,12 @@ task.spawn(function()
 			local total = good + bad + unknown
 			totalFound = total
 			
-			-- 更新UI
 			pcall(function()
 				GoodPara:SetTitle(string.format("🟢 好人: %d", good))
 				BadPara:SetTitle(string.format("🔴 坏人: %d", bad))
 				UnknownPara:SetTitle(string.format("❓ 未知: %d", unknown))
 				TotalPara:SetTitle(string.format("📊 总计: %d", total))
 				
-				-- 调试信息
 				local debugStr = string.format("扫描%d次 | Humanoid:%d个 | 本批发现%d个 | 总计%d个",
 					scanCount, humCount, newFound, total)
 				if total == 0 then
@@ -892,7 +860,6 @@ task.spawn(function()
 				end
 			end)
 			
-			-- 初次扫描打印详细调试
 			if scanCount == 1 then
 				print("[ESP] 首次扫描 - Workspace结构:")
 				for _, child in ipairs(Workspace:GetChildren()) do
@@ -934,7 +901,5 @@ UserInputService.InputBegan:Connect(function(input, gp)
 	end
 end)
 
-print("✅ 机场安全透视 v5.5 已加载!")
-print("⌨️ 按 RightShift 打开/关闭菜单")
-print("🔑 其他快捷键请到UI中自行设置")
+print("✅ 机场安全透视 v5.5.1 已加载!")
 print(string.format("📡 扫描模式: Humanoid + Head + HumanoidRootPart 三重检测"))
