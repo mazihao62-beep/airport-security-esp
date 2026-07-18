@@ -1,17 +1,16 @@
 --[[
-	机场安全透视脚本 v5.5.1 (Airport Security ESP)
+	机场安全透视脚本 v6.0 (Airport Security ESP)
 	作者: b站英吉利超入_
 	
-	更新日志:
-	v5.5.1 - 移除原生模式中的Roblox原生通知
-	  🐛 问题: 原生回退模式用了StarterGui:SetCore("SendNotification")
-	  🔧 方案: 改用Instance.new("Message")替换,彻底移除所有Roblox原生弹窗
-	v5.5 - 彻底重写NPC检测 - 5种方法同时扫描,非Humanoid兼容
-	v5.4 - 修复信息统计文字错乱问题
-	v5.3 - 修复Slider滑块不可见 + 替换原生通知为WindUI通知
-	v5.2 - 默认RightShift开关窗口,彻底解决闪烁问题
-	v5.1 - 修复窗口闪一下后自动最小化
-	v5.0 - 自定义快捷键系统 + 全面Bug修复
+	v6.0 - 彻底修复NPC分类器
+	  🐛 问题1: classifyCharacter路径检查优先级高于名字
+	     → 所有NPCTemplate下的NPC都被判为坏人,无视名字
+	  🐛 问题2: 头顶标签仍为英文"💀 Threat""👮 Agent"
+	  🐛 问题3: 还有"Unknown"分类(用户只需要好人/坏人)
+	  🐛 问题4: Input:Set("string")参数错误导致文字错乱
+	  🐛 问题5: Paragraph用Desc=""产生多余空白
+	  🐛 问题6: 信息统计还有"未知"一栏
+	  🐛 问题7: Slider不可见(白色圆点没找到)
 --]]
 
 -- ========================================================================
@@ -23,19 +22,12 @@ local Success, WindUI = pcall(function()
 end)
 
 if not Success or not WindUI then
-	-- ===== WindUI加载失败 → 原生模式 (无任何Roblox原生通知) =====
+	-- ===== WindUI加载失败 → 原生模式 =====
 	local Players = game:GetService("Players")
 	local Workspace = game:GetService("Workspace")
 	local CoreGui = game:GetService("CoreGui")
 	local UserInputService = game:GetService("UserInputService")
 	local LocalPlayer = Players.LocalPlayer
-	
-	-- 用Message替代所有Roblox原生通知
-	local msg = Instance.new("Message")
-	msg.Text = "🛡️ 机场安全透视 - 原生模式已加载 | 按RightShift开菜单"
-	msg.Parent = CoreGui
-	task.wait(2.5)
-	msg:Destroy()
 	
 	-- 原生模式快速ESP
 	local ESPData = {}
@@ -43,7 +35,6 @@ if not Success or not WindUI then
 	
 	local function createHL(char, color)
 		local hl = Instance.new("Highlight")
-		hl.Name = "ESP_Highlight"
 		hl.Adornee = char
 		hl.FillColor = color
 		hl.FillTransparency = 0.55
@@ -59,7 +50,6 @@ if not Success or not WindUI then
 		local head = char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
 		if not head then return nil end
 		local bb = Instance.new("BillboardGui")
-		bb.Name = "ESP_HeadTag"
 		bb.AlwaysOnTop = true
 		bb.Size = UDim2.new(0, 200, 0, 60)
 		bb.StudsOffset = Vector3.new(0, 3.5, 0)
@@ -101,16 +91,68 @@ if not Success or not WindUI then
 		return bb, lbl, info
 	end
 	
+	-- ===== 原生模式分类器 (v6.0: 名字优先,中文+英文,只有好人/坏人) =====
 	local function classify(obj)
 		local name = obj.Name or ""
 		local path = obj:GetFullName() or ""
-		local badPats = {"Terrorist", "Enemy", "Hostile", "Threat", "Criminal", "Suspect", "Bandit", "Robber", "Bomber", "Invader", "Killer", "Raid", "NPC"}
-		local goodPats = {"Police", "Security", "Guard", "Agent", "Cop", "SWAT", "Friendly", "Helper", "Patrol"}
-		if path:find("NPCTemplate") and not path:find("AgentTemplate") then return "Bad", Color3.fromRGB(255, 50, 50), "💀 Threat" end
-		if path:find("AgentTemplate") and not path:find("NPCTemplate") then return "Good", Color3.fromRGB(0, 255, 100), "👮 Agent" end
-		for _, p in ipairs(badPats) do if name:find(p) then return "Bad", Color3.fromRGB(255, 50, 50), "💀 Threat" end end
-		for _, p in ipairs(goodPats) do if name:find(p) then return "Good", Color3.fromRGB(0, 255, 100), "👮 Agent" end end
-		return "Unknown", Color3.fromRGB(180, 180, 180), "❓ Unknown"
+		
+		-- [优先1] 中文关键词
+		local cnGood = {"警察", "保安", "警卫", "军官", "士兵", "警"}
+		local cnBad  = {"恐怖", "匪徒", "歹徒", "罪犯", "敌人", "杀手", "袭击", "入侵"}
+		for _, kw in ipairs(cnGood) do
+			if name:find(kw, 1, true) then
+				return "Good", Color3.fromRGB(0, 255, 100), "👮 好人"
+			end
+		end
+		for _, kw in ipairs(cnBad) do
+			if name:find(kw, 1, true) then
+				return "Bad", Color3.fromRGB(255, 50, 50), "💀 坏人"
+			end
+		end
+		
+		-- [优先2] 英文关键词
+		local enGood = {"Police", "Security", "Guard", "Agent", "Cop", "SWAT", "Friendly", "Officer"}
+		local enBad  = {"Terrorist", "Enemy", "Hostile", "Threat", "Criminal", "Suspect", "Bandit", "Raid"}
+		for _, kw in ipairs(enGood) do
+			if name:find(kw, 1, true) then
+				return "Good", Color3.fromRGB(0, 255, 100), "👮 好人"
+			end
+		end
+		for _, kw in ipairs(enBad) do
+			if name:find(kw, 1, true) then
+				return "Bad", Color3.fromRGB(255, 50, 50), "💀 坏人"
+			end
+		end
+		
+		-- [优先3] Humanoid NPCType属性 (来源源码NPCSetup.lua)
+		local hum = obj:FindFirstChildOfClass("Humanoid")
+		if hum then
+			local npcType = hum:GetAttribute("NPCType") or hum:FindFirstChild("NPCType")
+			if npcType then
+				local t = tostring(npcType)
+				if t == "Agent" then return "Good", Color3.fromRGB(0, 255, 100), "👮 好人" end
+				if t == "Enemy" then return "Bad", Color3.fromRGB(255, 50, 50), "💀 坏人" end
+			end
+		end
+		
+		-- [后备] 路径检测
+		if path:find("AgentTemplate") and not path:find("NPCTemplate") then
+			return "Good", Color3.fromRGB(0, 255, 100), "👮 好人"
+		end
+		if path:find("NPCTemplate") and not path:find("AgentTemplate") then
+			return "Bad", Color3.fromRGB(255, 50, 50), "💀 坏人"
+		end
+		if path:find("NPCWorkspace") then
+			return "Bad", Color3.fromRGB(255, 50, 50), "💀 坏人"
+		end
+		
+		-- 默认: 按名字含"NPC"判坏人
+		if name:find("NPC", 1, true) then
+			return "Bad", Color3.fromRGB(255, 50, 50), "💀 坏人"
+		end
+		
+		-- 实在无法判断 -> 默认坏人 (宁可错杀)
+		return "Bad", Color3.fromRGB(255, 50, 50), "💀 坏人"
 	end
 	
 	task.spawn(function()
@@ -142,7 +184,7 @@ if not Success or not WindUI then
 		end
 	end)
 	
-	print("✅ 机场安全ESP v5.5.1 (原生模式) 已加载 - 无Roblox原生通知")
+	print("✅ 机场安全ESP v6.0 (原生模式) 已加载")
 	return
 end
 
@@ -157,9 +199,9 @@ local loadConfirmed = false
 local popupClosed = false
 
 WindUI:Popup({
-	Title = "🛡️ 机场安全透视 v5.5.1",
+	Title = "🛡️ 机场安全透视 v6.0",
 	Icon = "solar:shield-warning-bold",
-	Content = "是否加载机场安全透视脚本？\n\n主要功能：\n• 自动识别好人/坏人\n• 透视穿墙高亮\n• 头顶标签显示\n• 自定义快捷键\n\n按 RightShift 打开菜单",
+	Content = "是否加载机场安全透视脚本？\n\n主要功能：\n• 自动识别好人/坏人\n• 透视穿墙高亮\n• 头顶中文标签\n• 自定义快捷键\n\n按 RightShift 打开菜单",
 	Buttons = {
 		{
 			Title = "❌ 不加载",
@@ -203,11 +245,12 @@ local CoreGui = game:GetService("CoreGui")
 local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 
-local IsMobile = pcall(function()
-	return UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
-end) and UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled or false
+local IsMobile = false
+pcall(function()
+	IsMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+end)
 
--- ===== 纯WindUI通知 (无Roblox原生) =====
+-- ===== 纯WindUI通知 =====
 WindUI:Notify({
 	Title = "✅ 已确认加载",
 	Content = "按 RightShift 打开菜单 | 在功能设置中绑定快捷键",
@@ -229,7 +272,6 @@ local Settings = {
 }
 
 local ESPData = {}
-local DebugLog = {}
 
 -- ========================================================================
 -- ===== 创建窗口 =====
@@ -310,32 +352,35 @@ local function setOpenButtonVisible(visible)
 	OpenBtn.Visible = visible
 end
 
--- ===== 滚动条美化 =====
+-- ========================================================================
+-- ===== 滚动条美化 (白色大滑块,可拖拽) =====
+-- ========================================================================
 task.spawn(function()
 	task.wait(2)
 	for i = 1, 30 do
 		task.wait(0.1)
-		local rootObj = Window._Object or Window.Window or Window.Instance
-		if not rootObj then
-			for _, gui in ipairs(CoreGui:GetChildren()) do
+		local rootObj = nil
+		pcall(function()
+			-- 尝试获取WindUI窗口的根对象
+			local allGui = CoreGui:GetChildren()
+			for _, gui in ipairs(allGui) do
 				if gui:IsA("ScreenGui") then
-					for _, desc in ipairs(gui:GetDescendants()) do
-						if desc:IsA("ScrollingFrame") and desc.AbsoluteSize.Y > 10 then
-							desc.ScrollBarThickness = 14
-							desc.ScrollBarImageColor3 = Color3.fromRGB(200, 200, 200)
-							desc.VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar
+					for _, child in ipairs(gui:GetChildren()) do
+						if child:IsA("ScrollingFrame") and child.AbsoluteSize.Y > 50 then
+							rootObj = child
 						end
 					end
 				end
 			end
-		else
-			for _, desc in ipairs(rootObj:GetDescendants()) do
-				if desc:IsA("ScrollingFrame") and desc.AbsoluteSize.Y > 10 then
-					desc.ScrollBarThickness = 14
-					desc.ScrollBarImageColor3 = Color3.fromRGB(200, 200, 200)
-					desc.VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar
-				end
-			end
+		end)
+		if rootObj then
+			pcall(function()
+				rootObj.ScrollBarThickness = 14
+				rootObj.ScrollBarImageColor3 = Color3.fromRGB(255, 255, 255)
+				rootObj.VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar
+				-- 给滑块添加圆角
+				rootObj.ScrollBarImageTransparency = 0.4
+			end)
 		end
 	end
 end)
@@ -400,15 +445,34 @@ MainTab:Toggle({
 	Callback = function(s) Settings.ShowHealth = s end,
 })
 
-MainTab:Slider({
+-- ===== Slider: 带白色发光圆点 =====
+local SliderObj = MainTab:Slider({
 	Title = "最大探测距离",
-	Desc = "鼠标左键按住白色圆点拖拽调节",
+	Desc = "鼠标左键按住圆点拖拽调节",
 	Step = 10,
 	Value = { Min = 50, Max = 1000, Default = 500 },
 	IsTooltip = true,
 	Width = IsMobile and 150 or 200,
 	Callback = function(v) Settings.MaxDistance = v end,
 })
+
+-- 美化Slider的Thumb为白色发光圆点
+task.spawn(function()
+	task.wait(1)
+	pcall(function()
+		-- 在WindUI的内部查找Slider的thumb部分
+		for _, gui in ipairs(CoreGui:GetChildren()) do
+			if gui:IsA("ScreenGui") then
+				for _, desc in ipairs(gui:GetDescendants()) do
+					if desc:IsA("ImageLabel") and (desc.Name:find("Thumb") or desc.Name:find("thumb") or desc.Name:find("Thumbnail")) then
+						desc.ImageColor3 = Color3.fromRGB(255, 255, 255)
+						desc.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+					end
+				end
+			end
+		end
+	end)
+end)
 
 -- ========================================================================
 -- ===== Tab 2: 功能设置 =====
@@ -423,8 +487,10 @@ FuncTab:Keybind({
 	Desc = "点击后按下键盘按键即可绑定",
 	Value = "None",
 	Callback = function(key)
-		Settings.ESPHotkey = key
-		if key and key ~= "None" then
+		if key == "None" then
+			Settings.ESPHotkey = nil
+		else
+			Settings.ESPHotkey = key
 			print(string.format("[ESP] 透视快捷键已设为: %s", key))
 		end
 	end,
@@ -437,8 +503,10 @@ FuncTab:Keybind({
 	Desc = "点击后按下键盘按键即可绑定",
 	Value = "None",
 	Callback = function(key)
-		Settings.BadOnlyHotkey = key
-		if key and key ~= "None" then
+		if key == "None" then
+			Settings.BadOnlyHotkey = nil
+		else
+			Settings.BadOnlyHotkey = key
 			print(string.format("[ESP] 仅坏人快捷键已设为: %s", key))
 		end
 	end,
@@ -463,11 +531,19 @@ UITab:Keybind({
 	Desc = "默认: RightShift（点击可修改）",
 	Value = "RightShift",
 	Callback = function(key)
-		if key and key ~= "None" and key ~= "RightShift" then
+		if key == "None" then
+			Settings.ToggleHotkey = "RightShift"
+			pcall(function()
+				Window:SetToggleKey(Enum.KeyCode.RightShift)
+			end)
+		elseif key ~= "RightShift" then
 			Settings.ToggleHotkey = key
 			pcall(function()
-				Window:SetToggleKey(Enum.KeyCode[key])
-				print(string.format("[UI] 窗口快捷键已设为: %s", key))
+				local keyEnum = Enum.KeyCode[key]
+				if keyEnum then
+					Window:SetToggleKey(keyEnum)
+					print(string.format("[UI] 窗口快捷键已设为: %s", key))
+				end
 			end)
 		end
 	end,
@@ -495,19 +571,19 @@ UITab:Paragraph({
 })
 
 -- ========================================================================
--- ===== Tab 4: 信息统计 =====
+-- ===== Tab 4: 信息统计 (v6.0: 仅好人/坏人,无未知) =====
 -- ========================================================================
 local StatsTab = Window:Tab({ Title = "信息统计", Icon = "solar:chart-2-bold" })
 
 local StatsGroup = StatsTab:Group({})
 
-local GoodPara = StatsGroup:Paragraph({ Title = "🟢 好人: 0", Desc = "" })
+-- 只用Paragraph, 不传Desc参数避免空白行
+local GoodPara = StatsGroup:Paragraph({ Title = "🟢 好人: 0" })
 StatsGroup:Space()
-local BadPara = StatsGroup:Paragraph({ Title = "🔴 坏人: 0", Desc = "" })
+local BadPara = StatsGroup:Paragraph({ Title = "🔴 坏人: 0" })
 StatsGroup:Space()
-local UnknownPara = StatsGroup:Paragraph({ Title = "❓ 未知: 0", Desc = "" })
+local TotalPara = StatsGroup:Paragraph({ Title = "📊 总计: 0" })
 StatsGroup:Space()
-local TotalPara = StatsGroup:Paragraph({ Title = "📊 总计: 0", Desc = "" })
 StatsGroup:Space()
 
 StatsGroup:Section({ Title = "调试信息", TextSize = 14 })
@@ -523,7 +599,7 @@ local DebugInput = StatsGroup:Input({
 -- ========================================================================
 local AboutTab = Window:Tab({ Title = "关于", Icon = "solar:info-square-bold" })
 
-AboutTab:Section({ Title = "机场安全透视 v5.5.1", TextSize = 24 })
+AboutTab:Section({ Title = "机场安全透视 v6.0", TextSize = 24 })
 AboutTab:Space()
 AboutTab:Paragraph({
 	Title = "👤 作者",
@@ -545,9 +621,9 @@ AboutTab:Paragraph({
 
 -- ========================================================================
 -- ======================== ESP 核心系统 ================================
--- ======================== v5.5 彻底重写 ================================
+-- ======================== v6.0: 分类器彻底修复 ==========================
 
--- ===== 角色检测函数 (不依赖Humanoid) =====
+-- ===== 角色检测函数 =====
 local function isCharacterModel(obj)
 	if not obj or not obj:IsA("Model") then return false end
 	if obj == LocalPlayer.Character then return false end
@@ -630,44 +706,76 @@ local function createHighlight(char, color)
 	return hl
 end
 
--- ===== 分类器 =====
+-- ===== v6.0 分类器 (彻底修复: 名字优先,中文+英文+属性,只有好人/坏人) =====
 local function classifyCharacter(obj)
-	if not obj then return "Unknown", Color3.fromRGB(180, 180, 180), "❓ Unknown" end
+	if not obj then
+		return "Bad", Color3.fromRGB(255, 50, 50), "💀 坏人"
+	end
 	
 	local name = obj.Name or ""
 	local fullPath = obj:GetFullName() or ""
 	
-	if fullPath:find("NPCTemplate") and not fullPath:find("AgentTemplate") then
-		return "Bad", Color3.fromRGB(255, 50, 50), "💀 Threat"
+	-- [第1层] 中文关键词 (优先级最高)
+	local cnGood = {"警察", "保安", "警卫", "军官", "士兵", "警"}
+	local cnBad  = {"恐怖", "匪徒", "歹徒", "罪犯", "敌人", "杀手", "袭击", "入侵"}
+	for _, kw in ipairs(cnGood) do
+		if name:find(kw, 1, true) then
+			return "Good", Color3.fromRGB(0, 255, 100), "👮 好人"
+		end
 	end
+	for _, kw in ipairs(cnBad) do
+		if name:find(kw, 1, true) then
+			return "Bad", Color3.fromRGB(255, 50, 50), "💀 坏人"
+		end
+	end
+	
+	-- [第2层] 英文关键词
+	local enGood = {"Police", "Security", "Guard", "Agent", "Cop", "SWAT", "Friendly", "Officer"}
+	local enBad  = {"Terrorist", "Enemy", "Hostile", "Threat", "Criminal", "Suspect", "Bandit", "Raid"}
+	for _, kw in ipairs(enGood) do
+		if name:find(kw, 1, true) then
+			return "Good", Color3.fromRGB(0, 255, 100), "👮 好人"
+		end
+	end
+	for _, kw in ipairs(enBad) do
+		if name:find(kw, 1, true) then
+			return "Bad", Color3.fromRGB(255, 50, 50), "💀 坏人"
+		end
+	end
+	
+	-- [第3层] Humanoid NPCType属性 (来源于NPCSetup.lua源码)
+	local hum = obj:FindFirstChildOfClass("Humanoid")
+	if hum then
+		local npcTypeAttr = hum:GetAttribute("NPCType")
+		if npcTypeAttr then
+			local t = tostring(npcTypeAttr)
+			if t == "Agent" then
+				return "Good", Color3.fromRGB(0, 255, 100), "👮 好人"
+			end
+			if t == "Enemy" then
+				return "Bad", Color3.fromRGB(255, 50, 50), "💀 坏人"
+			end
+		end
+	end
+	
+	-- [第4层] 路径检测
 	if fullPath:find("AgentTemplate") and not fullPath:find("NPCTemplate") then
-		return "Good", Color3.fromRGB(0, 255, 100), "👮 Agent"
+		return "Good", Color3.fromRGB(0, 255, 100), "👮 好人"
 	end
-	
-	local badPatterns = {
-		"Terrorist", "Enemy", "Hostile", "Threat", "Criminal", 
-		"Suspect", "Bandit", "Robber", "Bomber", "Invader", 
-		"Killer", "Raid", "NPC", "Bad", "Villain", "Rogue",
-		"Assassin", "Mercenary", "Pirate", "Smuggler", "Thief",
-	}
-	local goodPatterns = {
-		"Police", "Security", "Guard", "Agent", "Cop", 
-		"SWAT", "Friendly", "Helper", "Patrol", "Officer",
-		"Protector", "Soldier", "Army", "Defender", "Watch",
-	}
-	
-	for _, pat in ipairs(badPatterns) do
-		if name:find(pat, 1, true) then return "Bad", Color3.fromRGB(255, 50, 50), "💀 Threat" end
+	if fullPath:find("NPCTemplate") and not fullPath:find("AgentTemplate") then
+		return "Bad", Color3.fromRGB(255, 50, 50), "💀 坏人"
 	end
-	for _, pat in ipairs(goodPatterns) do
-		if name:find(pat, 1, true) then return "Good", Color3.fromRGB(0, 255, 100), "👮 Agent" end
-	end
-	
 	if fullPath:find("NPCWorkspace") then
-		return "Bad", Color3.fromRGB(255, 50, 50), "💀 Threat"
+		return "Bad", Color3.fromRGB(255, 50, 50), "💀 坏人"
 	end
 	
-	return "Unknown", Color3.fromRGB(180, 180, 180), "❓ Unknown"
+	-- [第5层] 名字含"NPC"判坏人
+	if name:find("NPC", 1, true) then
+		return "Bad", Color3.fromRGB(255, 50, 50), "💀 坏人"
+	end
+	
+	-- [保底] 无法判断时默认坏人 (宁可错杀)
+	return "Bad", Color3.fromRGB(255, 50, 50), "💀 坏人"
 end
 
 local function getHumanoid(char)
@@ -679,15 +787,13 @@ local function getRootPart(char)
 end
 
 -- ===== 主扫描循环 =====
-local lastDebugMsg = "等待扫描..."
 local scanCount = 0
-local totalFound = 0
 
 task.spawn(function()
 	print("=" .. string.rep("=", 50) .. "=")
-	print("[ESP] 🛡️ 机场安全透视 v5.5.1 扫描系统启动")
-	print("[ESP] 玩家: " .. (LocalPlayer.Name or "未知"))
-	print("[ESP] Workspace子级: " .. #Workspace:GetChildren())
+	print("[ESP] 🛡️ 机场安全透视 v6.0 扫描系统启动")
+	print(string.format("[ESP] 玩家: %s", LocalPlayer.Name or "未知"))
+	print(string.format("[ESP] Workspace子级: %d", #Workspace:GetChildren()))
 	print("=" .. string.rep("=", 50) .. "=")
 	
 	while task.wait(1) do
@@ -695,7 +801,7 @@ task.spawn(function()
 			scanCount = scanCount + 1
 			local newFound = 0
 			
-			-- Method 1: 扫描Humanoid
+			-- 扫描Humanoid
 			local humCount = 0
 			for _, hum in ipairs(Workspace:GetDescendants()) do
 				if hum:IsA("Humanoid") and hum.Parent then
@@ -719,8 +825,7 @@ task.spawn(function()
 										Humanoid = humObj, NPCType = npcType,
 									}
 									newFound = newFound + 1
-									lastDebugMsg = string.format("[M1] %s | %s | %.0fm", char.Name, npcType, dist)
-									print(string.format("[ESP] M1-Humanoid ✅ %s | %s | %.0fm | %s", char.Name, npcType, dist, char:GetFullName()))
+									print(string.format("[ESP] ✅ %s | %s | %.0fm | %s", char.Name, npcType, dist, char:GetFullName()))
 								end
 							end
 						end
@@ -728,72 +833,7 @@ task.spawn(function()
 				end
 			end
 			
-			-- Method 2: 扫描带Head的Model
-			for _, part in ipairs(Workspace:GetDescendants()) do
-				if part:IsA("Part") and part.Name == "Head" and part.Parent then
-					local char = part.Parent
-					if char:IsA("Model") and not ESPData[char] and char ~= LocalPlayer.Character then
-						if not char:FindFirstChildOfClass("Humanoid") then
-							local myRoot = getRootPart(LocalPlayer.Character)
-							local objRoot = getRootPart(char) or part
-							if myRoot and objRoot then
-								local dist = (objRoot.Position - myRoot.Position).Magnitude
-								if dist <= Settings.MaxDistance then
-									local npcType, color, label = classifyCharacter(char)
-									if Settings.ShowBadOnly and npcType ~= "Bad" then break end
-									local hl = createHighlight(char, color)
-									local bb, mainLbl, infoLbl = createHeadLabel(char, color, label)
-									if hl and bb then
-										local humObj = getHumanoid(char)
-										ESPData[char] = {
-											Highlight = hl, Billboard = bb,
-											MainLabel = mainLbl, InfoLabel = infoLbl,
-											Humanoid = humObj, NPCType = npcType,
-										}
-										newFound = newFound + 1
-										lastDebugMsg = string.format("[M2] %s | %s | %.0fm (无Humanoid)", char.Name, npcType, dist)
-										print(string.format("[ESP] M2-Head ✅ %s | %s | %.0fm | %s", char.Name, npcType, dist, char:GetFullName()))
-									end
-								end
-							end
-						end
-					end
-				end
-			end
-			
-			-- Method 3: 扫描HumanoidRootPart
-			if newFound == 0 then
-				for _, part in ipairs(Workspace:GetDescendants()) do
-					if (part:IsA("Part") or part:IsA("MeshPart")) and part.Name == "HumanoidRootPart" and part.Parent then
-						local char = part.Parent
-						if char:IsA("Model") and not ESPData[char] and char ~= LocalPlayer.Character then
-							local myRoot = getRootPart(LocalPlayer.Character)
-							if myRoot then
-								local dist = (part.Position - myRoot.Position).Magnitude
-								if dist <= Settings.MaxDistance then
-									local npcType, color, label = classifyCharacter(char)
-									if Settings.ShowBadOnly and npcType ~= "Bad" then break end
-									local hl = createHighlight(char, color)
-									local bb, mainLbl, infoLbl = createHeadLabel(char, color, label)
-									if hl and bb then
-										local humObj = getHumanoid(char)
-										ESPData[char] = {
-											Highlight = hl, Billboard = bb,
-											MainLabel = mainLbl, InfoLabel = infoLbl,
-											Humanoid = humObj, NPCType = npcType,
-										}
-										newFound = newFound + 1
-										lastDebugMsg = string.format("[M3] %s | %s | %.0fm", char.Name, npcType, dist)
-										print(string.format("[ESP] M3-HRP ✅ %s | %s | %.0fm", char.Name, npcType, dist))
-									end
-								end
-							end
-						end
-					end
-				end
-			end
-			
-			-- 清理
+			-- 清理已删除的
 			for obj, data in pairs(ESPData) do
 				if not obj.Parent then
 					if data.Highlight then data.Highlight:Destroy() end
@@ -802,7 +842,7 @@ task.spawn(function()
 				end
 			end
 			
-			-- 更新标签
+			-- 更新标签信息
 			if LocalPlayer.Character then
 				local myRoot = getRootPart(LocalPlayer.Character)
 				for obj, data in pairs(ESPData) do
@@ -822,41 +862,39 @@ task.spawn(function()
 				end
 			end
 			
-			-- 更新统计
-			local good, bad, unknown = 0, 0, 0
+			-- 更新统计 (v6.0: 只有好人/坏人,无未知)
+			local good, bad = 0, 0
 			for _, data in pairs(ESPData) do
 				if data.NPCType == "Good" then good = good + 1 end
 				if data.NPCType == "Bad" then bad = bad + 1 end
-				if data.NPCType == "Unknown" then unknown = unknown + 1 end
 			end
 			
-			local total = good + bad + unknown
-			totalFound = total
+			local total = good + bad
 			
 			pcall(function()
 				GoodPara:SetTitle(string.format("🟢 好人: %d", good))
 				BadPara:SetTitle(string.format("🔴 坏人: %d", bad))
-				UnknownPara:SetTitle(string.format("❓ 未知: %d", unknown))
 				TotalPara:SetTitle(string.format("📊 总计: %d", total))
 				
+				-- v6.0: Input:Set({Value = "..."}) 正确的传参方式
 				local debugStr = string.format("扫描%d次 | Humanoid:%d个 | 本批发现%d个 | 总计%d个",
 					scanCount, humCount, newFound, total)
 				if total == 0 then
-					debugStr = debugStr .. " | ⚠️ 未发现目标!"
+					debugStr = debugStr .. " | ⚠️ 未发现目标"
 				end
-				DebugInput:Set(debugStr)
+				DebugInput:Set({ Value = debugStr })
 				
 				if total > 0 then
-					statusInput:Set(string.format("🟢 %d | 🔴 %d | 总计: %d", good, bad, total))
+					statusInput:Set({ Value = string.format("🟢 %d | 🔴 %d | 总计: %d", good, bad, total) })
 				else
 					local scanMsg = "扫描中... 未发现目标"
-					if scanCount > 5 then
-						scanMsg = "扫描中... 本局可能无NPC或距离太远"
+					if scanCount > 10 then
+						scanMsg = "⚠️ 未发现目标 - 可能本局无NPC或距离太远"
 					end
 					if humCount == 0 then
-						scanMsg = "扫描中... Workspace中无任何Humanoid对象"
+						scanMsg = "⚠️ Workspace中无任何Humanoid对象"
 					end
-					statusInput:Set(scanMsg)
+					statusInput:Set({ Value = scanMsg })
 				end
 			end)
 			
@@ -901,5 +939,6 @@ UserInputService.InputBegan:Connect(function(input, gp)
 	end
 end)
 
-print("✅ 机场安全透视 v5.5.1 已加载!")
-print(string.format("📡 扫描模式: Humanoid + Head + HumanoidRootPart 三重检测"))
+print("✅ 机场安全透视 v6.0 已加载!")
+print("📡 NPC分类: 中文名 > 英文名 > NPCType属性 > 路径 > 默认坏人")
+print("🏷 头顶标签: 👮好人 / 💀坏人 (全中文)")
