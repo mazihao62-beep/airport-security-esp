@@ -22,7 +22,8 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/mazihao62-beep/airpor
 4. 在「UI设置」中绑定窗口快捷键、调整毛玻璃/透明效果
 5. 在「功能设置」中绑定透视快捷键
 6. 在「主控面板」开启透视开关
-7. 在「配置管理」保存设置，下次自动加载
+7. 查看「信息统计」的调试日志确认NPC检测状态
+8. 在「配置管理」保存设置，下次自动加载
 
 ---
 
@@ -55,18 +56,21 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/mazihao62-beep/airpor
 | 💾 配置保存 | 自动 | 保存/加载所有设置 |
 | ✨ 毛玻璃 | ✅ 开 | Acrylic毛玻璃效果 |
 | 🔄 透明背景 | ❌ 关 | 窗口透明模式 |
+| 📋 调试面板 | 持续 | 实时显示NPC检测日志 |
 
 ---
 
-## 🏷 NPC识别
+## 🏷 NPC识别（v10.0 全面升级）
 
-| 方法 | 优先级 |
-|------|:-----:|
-| `NPCType` 属性 (NPCSetup.lua) | 🥇 |
-| 中文名 (警察/保安/警卫...) | 🥈 |
-| 英文名 (Police/Guard/Agent...) | 🥉 |
-| 路径 (AgentTemplate/NPCTemplate) | 4️⃣ |
-| TeamColor (蓝绿=好人, 红棕=坏人) | 5️⃣ |
+| 方法 | 优先级 | 说明 |
+|------|:-----:|------|
+| 多属性检测 | 🥇 | NPCType / Type / Team / Faction / Role / Class 等 |
+| 中文关键词 | 🥈 | 警察/保安/警卫/警/守卫/士兵/军官... |
+| 英文关键词 | 🥉 | Police/Security/Guard/Agent/Officer... |
+| 身体颜色 | 4️⃣ | 蓝色/绿色系 = 好人, 红色/黑色系 = 坏人 |
+| 父级容器名 | 5️⃣ | 检查NPC所在文件夹名称 |
+| 工具检测 | 6️⃣ | Arrest/Taser/警/盾等 = 好人 |
+| 路径检测 | 7️⃣ | 最后手段 |
 
 ---
 
@@ -75,7 +79,7 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/mazihao62-beep/airpor
 ```
 ┌─ 主控面板 ─┬─ 功能设置 ─┬─ UI设置 ─┬─ 信息统计 ─┬─ 配置管理 ─┬─ 关于 ─┐
 │ 透视开关     │ 透视快捷键   │ 窗口快捷键   │ 统计/扫描    │ 保存配置    │ 版本   │
-│ 仅显示坏人   │ 仅坏人快捷键  │ 悬浮按钮    │ 调试        │ 加载配置    │ 作者   │
+│ 仅显示坏人   │ 仅坏人快捷键  │ 悬浮按钮    │ 调试日志     │ 加载配置    │ 作者   │
 │ 距离/血量    │            │ 毛玻璃开关   │             │ 删除配置    │ 说明   │
 │ 探测距离滑块  │            │ 透明背景开关  │             │ 下拉选择    │       │
 └─────────────┴─────────────┴────────────┴────────────┴───────────┴───────┘
@@ -87,7 +91,8 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/mazihao62-beep/airpor
 
 | 版本 | 内容 |
 |------|------|
-| **v9.0** | ✅ 配置保存系统 + Acrylic毛玻璃 + 透明背景 + Solar图标 + 自动加载 |
+| **v10.0** | ✅ 全面重写分类器：多属性检测(NPCType/Type/Faction等) + 颜色检测(蓝绿vs红黑) + 父级容器检测 + 调试面板 + 扩充关键词 |
+| v9.0 | ✅ 配置保存系统 + Acrylic毛玻璃 + 透明背景 + Solar图标 + 自动加载 |
 | v8.0 | 对照官方文档重写所有API，修复快捷键 |
 | v6.8 | ✅ 弹窗描述详细化 + 移除不存在的方法调用 |
 | v6.7 | Phone 适配 + 完整 WindUI 重构 |
