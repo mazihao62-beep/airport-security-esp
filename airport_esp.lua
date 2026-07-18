@@ -1,13 +1,14 @@
 --[[
-	机场安全透视脚本 v5.2 (Airport Security ESP)
+	机场安全透视脚本 v5.3 (Airport Security ESP)
 	作者: b站英吉利超入_
 	
 	更新日志:
+	v5.3 - 修复Slider滑块不可见 + 替换原生通知为WindUI通知
+	  🐛 问题1: Slider的拖拽滑块在深色主题下看不见
+	  🔧 方案: 创建后自动找到Slider的Thumb并设为白色+亮光
+	  🐛 问题2: 加载成功提示用了Roblox原生通知
+	  🔧 方案: 替换为WindUI:Notify()
 	v5.2 - 默认RightShift开关窗口,彻底解决闪烁问题
-	  🐛 问题: 窗口闪一下消失
-	  🔧 方案: ToggleKey = RightShift,窗口默认隐藏
-	  ✅ 其他快捷键仍为None,用户自行配置
-	  📱 手机端保留手工悬浮按钮
 	v5.1 - 修复窗口闪一下后自动最小化
 	v5.0 - 自定义快捷键系统 + 全面Bug修复
 --]]
@@ -177,7 +178,7 @@ if not Success or not WindUI then
 		end
 	end)
 	
-	print("✅ 机场安全ESP v5.2 (原生模式) 已加载")
+	print("✅ 机场安全ESP v5.3 (原生模式) 已加载")
 	return
 end
 
@@ -192,7 +193,7 @@ local loadConfirmed = false
 local popupClosed = false
 
 WindUI:Popup({
-	Title = "🛡️ 机场安全透视 v5.2",
+	Title = "🛡️ 机场安全透视 v5.3",
 	Icon = "solar:shield-warning-bold",
 	Content = "是否加载机场安全透视脚本？\n\n主要功能：\n• 自动识别好人/坏人\n• 透视穿墙高亮\n• 头顶标签显示\n• 自定义快捷键\n\n按 RightShift 打开菜单",
 	Buttons = {
@@ -235,7 +236,6 @@ end
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
-local StarterGui = game:GetService("StarterGui")
 local CoreGui = game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
 
@@ -244,21 +244,13 @@ local IsMobile = pcall(function()
 	return UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 end) and UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled or false
 
--- ===== 通知 =====
+-- ===== 通知 (v5.3: 改为纯WindUI通知) =====
 WindUI:Notify({
 	Title = "✅ 已确认加载",
-	Content = "按 RightShift 打开菜单...",
-	Duration = 2,
+	Content = "按 RightShift 打开菜单 | 在功能设置中绑定快捷键",
+	Duration = 5,
 	Icon = "solar:eye-bold",
 })
-
-pcall(function()
-	StarterGui:SetCore("SendNotification", {
-		Title = "🛡️ 机场安全透视 v5.2",
-		Text = "按 RightShift 打开菜单 | 在功能设置中绑定快捷键",
-		Duration = 10,
-	})
-end)
 
 -- ===== 状态设置 =====
 local Settings = {
@@ -278,10 +270,6 @@ local ESPData = {}
 -- ========================================================================
 -- ===== 创建窗口 (默认隐藏, 按RightShift打开) =====
 -- ========================================================================
--- v5.2 关键改动:
--- 窗口默认隐藏(不闪烁), 用 RightShift 打开
--- 其他快捷键用户自行配置
--- 手机端用悬浮按钮
 
 local Window = WindUI:CreateWindow({
 	Title = "机场安全透视",
@@ -294,7 +282,6 @@ local Window = WindUI:CreateWindow({
 	-- ✅ 默认RightShift开关窗口 (WindUI原生支持,不会闪烁)
 	ToggleKey = Enum.KeyCode.RightShift,
 	
-	-- 不传OpenButton,手工做
 	Resizable = true,
 	NewElements = true,
 	SideBarWidth = IsMobile and 160 or 200,
@@ -312,7 +299,7 @@ OpenBtnGui.ResetOnSpawn = false
 OpenBtnGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 OpenBtnGui.DisplayOrder = 999999
 OpenBtnGui.Parent = CoreGui
-OpenBtnGui.Enabled = IsMobile -- 仅手机端默认显示
+OpenBtnGui.Enabled = IsMobile
 
 local OpenBtn = Instance.new("ImageButton")
 OpenBtn.Name = "FloatingButton"
@@ -332,7 +319,6 @@ IconLbl.Font = Enum.Font.GothamBold
 IconLbl.TextColor3 = Color3.new(1, 1, 1)
 IconLbl.Parent = OpenBtn
 
--- 拖拽
 local dragging = false
 local dragStart, btnStart
 OpenBtn.InputBegan:Connect(function(input)
@@ -354,7 +340,6 @@ OpenBtn.InputEnded:Connect(function(input)
 	end
 end)
 
--- 手机按钮: 模拟RightShift切换窗口
 OpenBtn.MouseButton1Click:Connect(function()
 	pcall(function()
 		Window:SetToggleKey(Enum.KeyCode.RightShift)
@@ -368,10 +353,11 @@ local function setOpenButtonVisible(visible)
 	OpenBtn.Visible = visible
 end
 
--- ===== 白色粗滚动条 =====
+-- ===== 白色粗滚动条 + 滑块美化 =====
 task.spawn(function()
 	task.wait(2)
-	for i = 1, 40 do
+	-- 先找滚动条
+	for i = 1, 30 do
 		task.wait(0.1)
 		local found = false
 		local rootObj = Window._Object or Window.Window or Window.Instance
@@ -385,6 +371,13 @@ task.spawn(function()
 							desc.VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar
 							found = true
 						end
+						-- 也找Slider的Thumb并设为白色
+						if desc:IsA("ImageButton") or desc:IsA("ImageLabel") then
+							local parentName = desc.Parent and desc.Parent.Name or ""
+							if parentName:find("Thumb") or desc.Name:find("Thumb") then
+								desc.ImageColor3 = Color3.fromRGB(255, 255, 255)
+							end
+						end
 					end
 				end
 			end
@@ -396,10 +389,49 @@ task.spawn(function()
 					desc.VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar
 					found = true
 				end
+				-- Slider Thumb
+				if desc:IsA("ImageButton") or desc:IsA("ImageLabel") then
+					local parentName = desc.Parent and desc.Parent.Name or ""
+					if parentName:find("Thumb") or desc.Name:find("Thumb") then
+						desc.ImageColor3 = Color3.fromRGB(255, 255, 255)
+					end
+				end
 			end
 		end
 		if found then break end
 	end
+	
+	-- 等UI完整渲染后再扫一遍找Slider Thumb
+	task.wait(1)
+	pcall(function()
+		local rootObj = Window._Object or Window.Window or Window.Instance
+		if rootObj then
+			for _, desc in ipairs(rootObj:GetDescendants()) do
+				-- 找所有可能作为Slider Thumb的ImageButton
+				if desc:IsA("ImageButton") then
+					local p = desc.Parent
+					if p and p:IsA("Frame") and p.Parent then
+						-- 检查是否是Slider结构 (有Track, Range, Thumb等)
+						local gp = p.Parent
+						if gp and gp:IsA("Frame") then
+							-- 尝试让Thumb变成白色发光的圆点
+							desc.ImageColor3 = Color3.fromRGB(255, 255, 255)
+							desc.ImageTransparency = 0
+							-- 加个发光效果
+							desc.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+						end
+					end
+				end
+				-- 也找ImageLabel
+				if desc:IsA("ImageLabel") then
+					local name = desc.Name
+					if name:find("Thumb") or name:find("thumb") or name:find("Slider") or name:find("slider") then
+						desc.ImageColor3 = Color3.fromRGB(255, 255, 255)
+					end
+				end
+			end
+		end
+	end)
 end)
 
 -- ========================================================================
@@ -462,14 +494,78 @@ MainTab:Toggle({
 	Callback = function(s) Settings.ShowHealth = s end,
 })
 
-MainTab:Slider({
-	Title = "最大探测距离", Desc = "鼠标左键拖拽滑块调节",
+-- 保存Slider引用, 用于后续美化Thumb
+local distanceSlider = MainTab:Slider({
+	Title = "最大探测距离",
+	Desc = "鼠标左键按住白色圆点拖拽调节",
 	Step = 10,
 	Value = { Min = 50, Max = 1000, Default = 500 },
 	IsTooltip = true,
 	Width = IsMobile and 150 or 200,
 	Callback = function(v) Settings.MaxDistance = v end,
 })
+
+-- 美化Slider的Thumb (让它变成明显可见的白色)
+task.spawn(function()
+	task.wait(3)
+	pcall(function()
+		local rootObj = Window._Object or Window.Window or Window.Instance
+		if not rootObj then return end
+		
+		-- 深度搜索所有ImageButton,找到Slider的Thumb
+		for _, desc in ipairs(rootObj:GetDescendants()) do
+			-- ImageButton类型的Thumb
+			if desc:IsA("ImageButton") then
+				-- 检查是不是小圆点(Thumb特征: 父级是Frame, 包含"Track"或"Slider"的祖父级)
+				local p = desc.Parent
+				if p and p:IsA("Frame") then
+					-- 设为纯白色圆点
+					desc.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+					desc.BackgroundTransparency = 0
+					desc.BorderSizePixel = 0
+					-- 加个亮色外发
+					local shadow = desc:FindFirstChildOfClass("ImageLabel")
+					if shadow then
+						shadow.ImageColor3 = Color3.fromRGB(100, 200, 255)
+						shadow.ImageTransparency = 0.5
+					end
+				end
+			end
+			
+			-- ImageLabel类型的Thumb
+			if desc:IsA("ImageLabel") then
+				local name = desc.Name or ""
+				local lower = name:lower()
+				if lower:find("thumb") or lower:find("slider") then
+					desc.ImageColor3 = Color3.fromRGB(255, 255, 255)
+					desc.ImageTransparency = 0
+				end
+			end
+			
+			-- 圆形Frame也可能是Thumb
+			if desc:IsA("Frame") then
+				local name = desc.Name or ""
+				local lower = name:lower()
+				if lower:find("thumb") or lower:find("slider") then
+					desc.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+					desc.BackgroundTransparency = 0
+				end
+			end
+		end
+		
+		-- 再等2秒,找新渲染出来的元素
+		task.wait(2)
+		for _, desc in ipairs(rootObj:GetDescendants()) do
+			if desc:IsA("ImageButton") then
+				local p = desc.Parent
+				if p and p:IsA("Frame") then
+					desc.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+					desc.BackgroundTransparency = 0
+				end
+			end
+		end
+	end)
+end)
 
 -- ========================================================================
 -- ===== Tab 2: 功能设置 =====
@@ -519,14 +615,12 @@ local UITab = Window:Tab({ Title = "UI设置", Icon = "solar:palette-bold" })
 
 UITab:Section({ Title = "窗口控制", TextSize = 18 })
 
--- 显示当前快捷键
 UITab:Keybind({
 	Title = "窗口开关快捷键",
-	Desc = "默认: RightShift（请勿修改，仅查看）",
+	Desc = "默认: RightShift（点击可修改）",
 	Value = "RightShift",
 	Callback = function(key)
 		if key and key ~= "None" and key ~= "RightShift" then
-			-- 允许用户修改
 			Settings.ToggleHotkey = key
 			pcall(function()
 				Window:SetToggleKey(Enum.KeyCode[key])
@@ -538,7 +632,6 @@ UITab:Keybind({
 
 UITab:Space()
 
--- 悬浮按钮开关
 UITab:Toggle({
 	Title = "悬浮按钮（手机）",
 	Desc = "显示/隐藏屏幕上的绿色按钮",
@@ -584,7 +677,7 @@ local DebugInput = SG:Input({
 -- ========================================================================
 local AboutTab = Window:Tab({ Title = "关于", Icon = "solar:info-square-bold" })
 
-AboutTab:Section({ Title = "机场安全透视 v5.2", TextSize = 24 })
+AboutTab:Section({ Title = "机场安全透视 v5.3", TextSize = 24 })
 AboutTab:Space()
 AboutTab:Paragraph({
 	Title = "👤 作者",
@@ -601,6 +694,7 @@ AboutTab:Paragraph({
 2️⃣ 开启透视后NPC自动高亮
 
 💡 右侧白色滑块可拖拽滚动
+💡 探测距离滑块为白色圆点，可拖拽
 ]],
 })
 
@@ -876,6 +970,6 @@ UserInputService.InputBegan:Connect(function(input, gp)
 	end
 end)
 
-print("✅ 机场安全透视 v5.2 已加载!")
+print("✅ 机场安全透视 v5.3 已加载!")
 print("⌨️ 按 RightShift 打开/关闭菜单")
 print("🔑 其他快捷键请到UI中自行设置")
