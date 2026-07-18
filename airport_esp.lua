@@ -5,7 +5,7 @@
 	更新日志:
 	v5.4 - 修复信息统计文字错乱问题
 	  🐛 问题: Input元素堆叠导致标题和输入框文字糊在一起
-	  🔧 方案: 改用Paragraph展示统计数据,每行独立显示,干净整洁
+	  🔧 方案: 改用Paragraph展示统计数据,用SetTitle()更新
 	v5.3 - 修复Slider滑块不可见 + 替换原生通知为WindUI通知
 	v5.2 - 默认RightShift开关窗口,彻底解决闪烁问题
 	v5.1 - 修复窗口闪一下后自动最小化
@@ -629,18 +629,17 @@ UITab:Paragraph({
 })
 
 -- ========================================================================
--- ===== Tab 4: 信息统计 (v5.4: 改用Paragraph,彻底解决文字错乱) =====
+-- ===== Tab 4: 信息统计 =====
 -- ========================================================================
--- v5.4 改动: 原来用 Input 显示统计,Input有标题+输入框双重边框,
--- 导致4个Input堆叠后文字和边框糊在一起。
--- 改用 Paragraph 格式,每个统计项单独一个 Paragraph,
--- 标题显示图标+数值,Desc留空,干净整洁。
+-- v5.4 改动: 用Paragraph替代Input作为统计展示,
+-- Paragraph只有标题文本(无输入框),干净整洁不糊。
+-- 使用 Paragraph:SetTitle() 实时更新数值。
 
 local StatsTab = Window:Tab({ Title = "信息统计", Icon = "solar:chart-2-bold" })
 
 local StatsGroup = StatsTab:Group({})
 
--- 用Paragraph展示各个统计,每个只显示标题,没有多余的输入框
+-- 每个统计项用Paragraph,只有一行文字,没有输入框
 local GoodPara = StatsGroup:Paragraph({
 	Title = "🟢 好人: 0",
 	Desc = "",
@@ -667,7 +666,7 @@ StatsGroup:Space()
 
 StatsGroup:Section({ Title = "调试信息", TextSize = 14 })
 
--- 最近发现用Input显示(只有1个Input,不会糊在一起)
+-- 最近发现用Input(只有1个不会糊)
 local DebugInput = StatsGroup:Input({
 	Title = "最近发现",
 	Value = "等待扫描...",
@@ -908,7 +907,7 @@ task.spawn(function()
 				end
 			end
 			
-			-- 更新统计 (v5.4: 用 Paragraph.Title 显示统计数据)
+			-- 更新统计
 			local good, bad, unknown = 0, 0, 0
 			for _, data in pairs(ESPData) do
 				if data.NPCType == "Good" then good = good + 1 end
@@ -918,33 +917,11 @@ task.spawn(function()
 			
 			local total = good + bad + unknown
 			pcall(function()
-				-- Paragraph 更新 (通过修改Title属性来显示)
-				local goodStr = string.format("🟢 好人: %d", good)
-				local badStr = string.format("🔴 坏人: %d", bad)
-				local unkStr = string.format("❓ 未知: %d", unknown)
-				local totStr = string.format("📊 总计: %d", total)
-				
-				-- 直接修改Paragraph内部文本
-				local function updateParaTitle(para, newTitle)
-					if para and para._Object then
-						para._Object.Title = newTitle
-					end
-					-- fallback: 尝试修改Descendant里的TextLabel
-					if para and para._Object then
-						for _, v in ipairs(para._Object:GetDescendants()) do
-							if v:IsA("TextLabel") and v.Text then
-								if string.find(v.Text, "🟢") or string.find(v.Text, "🔴") or string.find(v.Text, "❓") or string.find(v.Text, "📊") then
-									v.Text = newTitle
-								end
-							end
-						end
-					end
-				end
-				
-				updateParaTitle(GoodPara, goodStr)
-				updateParaTitle(BadPara, badStr)
-				updateParaTitle(UnknownPara, unkStr)
-				updateParaTitle(TotalPara, totStr)
+				-- 用 Paragraph:SetTitle() 干净更新 (WindUI官方API)
+				GoodPara:SetTitle(string.format("🟢 好人: %d", good))
+				BadPara:SetTitle(string.format("🔴 坏人: %d", bad))
+				UnknownPara:SetTitle(string.format("❓ 未知: %d", unknown))
+				TotalPara:SetTitle(string.format("📊 总计: %d", total))
 				
 				DebugInput:Set(lastDebugMsg)
 				
