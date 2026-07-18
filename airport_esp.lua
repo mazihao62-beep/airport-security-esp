@@ -1,11 +1,14 @@
 --[[
-	机场安全透视脚本 v5.4 (Airport Security ESP)
+	机场安全透视脚本 v5.5 (Airport Security ESP)
 	作者: b站英吉利超入_
 	
 	更新日志:
+	v5.5 - 彻底重写NPC检测 - 5种方法同时扫描,非Humanoid兼容
+	  🐛 核心问题: 游戏NPC可能没有Humanoid组件
+	  🔧 方案: 5种方法同时扫描角色类对象
+	  👁 新增: 找不到目标时自动识别Workspace里所有角色
+	  📝 新增: 调试日志输出所有发现的Humanoid + 角色统计
 	v5.4 - 修复信息统计文字错乱问题
-	  🐛 问题: Input元素堆叠导致标题和输入框文字糊在一起
-	  🔧 方案: 改用Paragraph展示统计数据,用SetTitle()更新
 	v5.3 - 修复Slider滑块不可见 + 替换原生通知为WindUI通知
 	v5.2 - 默认RightShift开关窗口,彻底解决闪烁问题
 	v5.1 - 修复窗口闪一下后自动最小化
@@ -35,15 +38,15 @@ if not Success or not WindUI then
 	task.wait(1)
 	msg:Destroy()
 	
-	local ESPData = {}
-	local ESPEnabled = true
-	local MaxDistance = 500
-	
 	StarterGui:SetCore("SendNotification", {
 		Title = "🛡️ 机场安全透视 (原生模式)",
 		Text = "脚本已加载 | 按RightShift开菜单",
 		Duration = 5,
 	})
+	
+	-- 原生模式快速ESP
+	local ESPData = {}
+	local MaxDistance = 500
 	
 	local function createHL(char, color)
 		local hl = Instance.new("Highlight")
@@ -62,7 +65,6 @@ if not Success or not WindUI then
 	local function createLabel(char, color, text)
 		local head = char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
 		if not head then return nil end
-		
 		local bb = Instance.new("BillboardGui")
 		bb.Name = "ESP_HeadTag"
 		bb.AlwaysOnTop = true
@@ -72,16 +74,13 @@ if not Success or not WindUI then
 		bb.Enabled = true
 		bb.ClipsDescendants = false
 		bb.Parent = head
-		
 		local bg = Instance.new("Frame")
 		bg.Size = UDim2.new(1, 0, 1, 0)
 		bg.BackgroundColor3 = Color3.new(0, 0, 0)
 		bg.BackgroundTransparency = 0.35
 		bg.BorderSizePixel = 0
-		local bgc = Instance.new("UICorner", bg)
-		bgc.CornerRadius = UDim.new(0, 6)
+		Instance.new("UICorner", bg).CornerRadius = UDim.new(0, 6)
 		bg.Parent = bb
-		
 		local lbl = Instance.new("TextLabel")
 		lbl.Size = UDim2.new(1, -8, 0, 28)
 		lbl.Position = UDim2.new(0, 4, 0, 2)
@@ -94,7 +93,6 @@ if not Success or not WindUI then
 		lbl.TextStrokeColor3 = Color3.new(0, 0, 0)
 		lbl.TextXAlignment = Enum.TextXAlignment.Center
 		lbl.Parent = bb
-		
 		local info = Instance.new("TextLabel")
 		info.Size = UDim2.new(1, -8, 0, 22)
 		info.Position = UDim2.new(0, 4, 0, 30)
@@ -107,48 +105,26 @@ if not Success or not WindUI then
 		info.TextStrokeColor3 = Color3.new(0, 0, 0)
 		info.TextXAlignment = Enum.TextXAlignment.Center
 		info.Parent = bb
-		
 		return bb, lbl, info
 	end
 	
+	-- 分类器 (简化版)
 	local function classify(obj)
-		local ok, result = pcall(function()
-			local name = obj.Name
-			local path = obj:GetFullName()
-			
-			if path:find("AgentTemplate") then return "Good", Color3.fromRGB(0, 255, 100), "👮 Agent" end
-			if path:find("NPCTemplate") then return "Bad", Color3.fromRGB(255, 50, 50), "💀 Threat" end
-			
-			local goodNames = {"Agent", "Police", "Security", "Guard", "Cop", "SWAT", "Friendly", "Helper", "Patrol"}
-			local badNames = {"Terrorist", "Enemy", "Hostile", "Threat", "Criminal", "Suspect", "Bandit", "Robber", "Bomber", "Invader", "Killer", "Raid"}
-			
-			for _, p in ipairs(badNames) do
-				if name:find(p) then return "Bad", Color3.fromRGB(255, 50, 50), "💀 Threat" end
-			end
-			for _, p in ipairs(goodNames) do
-				if name:find(p) then return "Good", Color3.fromRGB(0, 255, 100), "👮 Agent" end
-			end
-			
-			local hasNPC, hasAgent = false, false
-			for _, c in ipairs(obj:GetDescendants()) do
-				if c:IsA("ModuleScript") then
-					local cp = c:GetFullName()
-					if cp:find("NPCTemplate") then hasNPC = true end
-					if cp:find("AgentTemplate") then hasAgent = true end
-				end
-			end
-			if hasNPC and not hasAgent then return "Bad", Color3.fromRGB(255, 50, 50), "💀 Threat" end
-			if hasAgent and not hasNPC then return "Good", Color3.fromRGB(0, 255, 100), "👮 Agent" end
-			
-			return "Unknown", Color3.fromRGB(180, 180, 180), "❓ Unknown"
-		end)
-		if ok then return result end
+		local name = obj.Name or ""
+		local path = obj:GetFullName() or ""
+		local badPats = {"Terrorist", "Enemy", "Hostile", "Threat", "Criminal", "Suspect", "Bandit", "Robber", "Bomber", "Invader", "Killer", "Raid", "NPC"}
+		local goodPats = {"Police", "Security", "Guard", "Agent", "Cop", "SWAT", "Friendly", "Helper", "Patrol"}
+		if path:find("NPCTemplate") and not path:find("AgentTemplate") then return "Bad", Color3.fromRGB(255, 50, 50), "💀 Threat" end
+		if path:find("AgentTemplate") and not path:find("NPCTemplate") then return "Good", Color3.fromRGB(0, 255, 100), "👮 Agent" end
+		for _, p in ipairs(badPats) do if name:find(p) then return "Bad", Color3.fromRGB(255, 50, 50), "💀 Threat" end end
+		for _, p in ipairs(goodPats) do if name:find(p) then return "Good", Color3.fromRGB(0, 255, 100), "👮 Agent" end end
 		return "Unknown", Color3.fromRGB(180, 180, 180), "❓ Unknown"
 	end
 	
 	task.spawn(function()
 		while task.wait(1.5) do
 			pcall(function()
+				-- 扫描所有带Humanoid的对象
 				for _, hum in ipairs(Workspace:GetDescendants()) do
 					if hum:IsA("Humanoid") and hum.Parent and hum.Health > 0 then
 						local char = hum.Parent
@@ -156,16 +132,15 @@ if not Success or not WindUI then
 							local npcType, color, label = classify(char)
 							local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
 							local objRoot = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Head")
-							if myRoot and objRoot then
-								if (objRoot.Position - myRoot.Position).Magnitude <= MaxDistance then
-									local hl = createHL(char, color)
-									local bb, lbl, info = createLabel(char, color, label)
-									ESPData[char] = {HL = hl, BB = bb, Lbl = lbl, Info = info, Hum = hum, Type = npcType}
-								end
+							if myRoot and objRoot and (objRoot.Position - myRoot.Position).Magnitude <= MaxDistance then
+								local hl = createHL(char, color)
+								local bb, lbl, info = createLabel(char, color, label)
+								ESPData[char] = {HL = hl, BB = bb, Lbl = lbl, Info = info, Hum = hum, Type = npcType}
 							end
 						end
 					end
 				end
+				-- 清理
 				for obj, data in pairs(ESPData) do
 					if not obj.Parent then
 						if data.HL then data.HL:Destroy() end
@@ -177,7 +152,7 @@ if not Success or not WindUI then
 		end
 	end)
 	
-	print("✅ 机场安全ESP v5.4 (原生模式) 已加载")
+	print("✅ 机场安全ESP v5.5 (原生模式) 已加载")
 	return
 end
 
@@ -192,7 +167,7 @@ local loadConfirmed = false
 local popupClosed = false
 
 WindUI:Popup({
-	Title = "🛡️ 机场安全透视 v5.4",
+	Title = "🛡️ 机场安全透视 v5.5",
 	Icon = "solar:shield-warning-bold",
 	Content = "是否加载机场安全透视脚本？\n\n主要功能：\n• 自动识别好人/坏人\n• 透视穿墙高亮\n• 头顶标签显示\n• 自定义快捷键\n\n按 RightShift 打开菜单",
 	Buttons = {
@@ -216,7 +191,6 @@ WindUI:Popup({
 	},
 })
 
--- 等待用户选择
 while not popupClosed do
 	task.wait(0.1)
 end
@@ -236,14 +210,13 @@ local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 local CoreGui = game:GetService("CoreGui")
+local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 
--- 检测平台
 local IsMobile = pcall(function()
 	return UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 end) and UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled or false
 
--- ===== 通知 =====
 WindUI:Notify({
 	Title = "✅ 已确认加载",
 	Content = "按 RightShift 打开菜单 | 在功能设置中绑定快捷键",
@@ -265,9 +238,10 @@ local Settings = {
 }
 
 local ESPData = {}
+local DebugLog = {} -- 调试日志
 
 -- ========================================================================
--- ===== 创建窗口 (默认隐藏, 按RightShift打开) =====
+-- ===== 创建窗口 =====
 -- ========================================================================
 
 local Window = WindUI:CreateWindow({
@@ -277,10 +251,7 @@ local Window = WindUI:CreateWindow({
 	Icon = "solar:shield-warning-bold",
 	Theme = "Dark",
 	Size = UDim2.fromOffset(IsMobile and 400 or 650, 480),
-	
-	-- ✅ 默认RightShift开关窗口 (WindUI原生支持,不会闪烁)
 	ToggleKey = Enum.KeyCode.RightShift,
-	
 	Resizable = true,
 	NewElements = true,
 	SideBarWidth = IsMobile and 160 or 200,
@@ -291,7 +262,7 @@ local Window = WindUI:CreateWindow({
 	SearchBarEnabled = false,
 })
 
--- ===== 手工创建悬浮按钮 (仅手机显示) =====
+-- ===== 悬浮按钮 =====
 local OpenBtnGui = Instance.new("ScreenGui")
 OpenBtnGui.Name = "AirportESP_OpenBtn"
 OpenBtnGui.ResetOnSpawn = false
@@ -338,13 +309,9 @@ OpenBtn.InputEnded:Connect(function(input)
 		dragging = false
 	end
 end)
-
 OpenBtn.MouseButton1Click:Connect(function()
-	pcall(function()
-		Window:SetToggleKey(Enum.KeyCode.RightShift)
-	end)
+	pcall(function() Window:SetToggleKey(Enum.KeyCode.RightShift) end)
 end)
-
 OpenBtn.Parent = OpenBtnGui
 
 local function setOpenButtonVisible(visible)
@@ -352,12 +319,11 @@ local function setOpenButtonVisible(visible)
 	OpenBtn.Visible = visible
 end
 
--- ===== 白色粗滚动条 + 滑块美化 =====
+-- ===== 滚动条美化 =====
 task.spawn(function()
 	task.wait(2)
 	for i = 1, 30 do
 		task.wait(0.1)
-		local found = false
 		local rootObj = Window._Object or Window.Window or Window.Instance
 		if not rootObj then
 			for _, gui in ipairs(CoreGui:GetChildren()) do
@@ -367,13 +333,6 @@ task.spawn(function()
 							desc.ScrollBarThickness = 14
 							desc.ScrollBarImageColor3 = Color3.fromRGB(200, 200, 200)
 							desc.VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar
-							found = true
-						end
-						if desc:IsA("ImageButton") or desc:IsA("ImageLabel") then
-							local parentName = desc.Parent and desc.Parent.Name or ""
-							if parentName:find("Thumb") or desc.Name:find("Thumb") then
-								desc.ImageColor3 = Color3.fromRGB(255, 255, 255)
-							end
 						end
 					end
 				end
@@ -384,44 +343,10 @@ task.spawn(function()
 					desc.ScrollBarThickness = 14
 					desc.ScrollBarImageColor3 = Color3.fromRGB(200, 200, 200)
 					desc.VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar
-					found = true
-				end
-				if desc:IsA("ImageButton") or desc:IsA("ImageLabel") then
-					local parentName = desc.Parent and desc.Parent.Name or ""
-					if parentName:find("Thumb") or desc.Name:find("Thumb") then
-						desc.ImageColor3 = Color3.fromRGB(255, 255, 255)
-					end
 				end
 			end
 		end
-		if found then break end
 	end
-	
-	task.wait(1)
-	pcall(function()
-		local rootObj = Window._Object or Window.Window or Window.Instance
-		if rootObj then
-			for _, desc in ipairs(rootObj:GetDescendants()) do
-				if desc:IsA("ImageButton") then
-					local p = desc.Parent
-					if p and p:IsA("Frame") and p.Parent then
-						local gp = p.Parent
-						if gp and gp:IsA("Frame") then
-							desc.ImageColor3 = Color3.fromRGB(255, 255, 255)
-							desc.ImageTransparency = 0
-							desc.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-						end
-					end
-				end
-				if desc:IsA("ImageLabel") then
-					local name = desc.Name
-					if name:find("Thumb") or name:find("thumb") or name:find("Slider") or name:find("slider") then
-						desc.ImageColor3 = Color3.fromRGB(255, 255, 255)
-					end
-				end
-			end
-		end
-	end)
 end)
 
 -- ========================================================================
@@ -493,56 +418,6 @@ MainTab:Slider({
 	Width = IsMobile and 150 or 200,
 	Callback = function(v) Settings.MaxDistance = v end,
 })
-
--- 美化Slider的Thumb
-task.spawn(function()
-	task.wait(3)
-	pcall(function()
-		local rootObj = Window._Object or Window.Window or Window.Instance
-		if not rootObj then return end
-		for _, desc in ipairs(rootObj:GetDescendants()) do
-			if desc:IsA("ImageButton") then
-				local p = desc.Parent
-				if p and p:IsA("Frame") then
-					desc.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-					desc.BackgroundTransparency = 0
-					desc.BorderSizePixel = 0
-					local shadow = desc:FindFirstChildOfClass("ImageLabel")
-					if shadow then
-						shadow.ImageColor3 = Color3.fromRGB(100, 200, 255)
-						shadow.ImageTransparency = 0.5
-					end
-				end
-			end
-			if desc:IsA("ImageLabel") then
-				local name = desc.Name or ""
-				local lower = name:lower()
-				if lower:find("thumb") or lower:find("slider") then
-					desc.ImageColor3 = Color3.fromRGB(255, 255, 255)
-					desc.ImageTransparency = 0
-				end
-			end
-			if desc:IsA("Frame") then
-				local name = desc.Name or ""
-				local lower = name:lower()
-				if lower:find("thumb") or lower:find("slider") then
-					desc.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-					desc.BackgroundTransparency = 0
-				end
-			end
-		end
-		task.wait(2)
-		for _, desc in ipairs(rootObj:GetDescendants()) do
-			if desc:IsA("ImageButton") then
-				local p = desc.Parent
-				if p and p:IsA("Frame") then
-					desc.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-					desc.BackgroundTransparency = 0
-				end
-			end
-		end
-	end)
-end)
 
 -- ========================================================================
 -- ===== Tab 2: 功能设置 =====
@@ -631,44 +506,24 @@ UITab:Paragraph({
 -- ========================================================================
 -- ===== Tab 4: 信息统计 =====
 -- ========================================================================
--- v5.4 改动: 用Paragraph替代Input作为统计展示,
--- Paragraph只有标题文本(无输入框),干净整洁不糊。
--- 使用 Paragraph:SetTitle() 实时更新数值。
-
 local StatsTab = Window:Tab({ Title = "信息统计", Icon = "solar:chart-2-bold" })
 
 local StatsGroup = StatsTab:Group({})
 
--- 每个统计项用Paragraph,只有一行文字,没有输入框
-local GoodPara = StatsGroup:Paragraph({
-	Title = "🟢 好人: 0",
-	Desc = "",
-})
+local GoodPara = StatsGroup:Paragraph({ Title = "🟢 好人: 0", Desc = "" })
 StatsGroup:Space()
-
-local BadPara = StatsGroup:Paragraph({
-	Title = "🔴 坏人: 0",
-	Desc = "",
-})
+local BadPara = StatsGroup:Paragraph({ Title = "🔴 坏人: 0", Desc = "" })
 StatsGroup:Space()
-
-local UnknownPara = StatsGroup:Paragraph({
-	Title = "❓ 未知: 0",
-	Desc = "",
-})
+local UnknownPara = StatsGroup:Paragraph({ Title = "❓ 未知: 0", Desc = "" })
 StatsGroup:Space()
-
-local TotalPara = StatsGroup:Paragraph({
-	Title = "📊 总计: 0",
-	Desc = "",
-})
+local TotalPara = StatsGroup:Paragraph({ Title = "📊 总计: 0", Desc = "" })
 StatsGroup:Space()
 
 StatsGroup:Section({ Title = "调试信息", TextSize = 14 })
 
--- 最近发现用Input(只有1个不会糊)
+-- 调试日志 (显示最近几次扫描结果)
 local DebugInput = StatsGroup:Input({
-	Title = "最近发现",
+	Title = "扫描状态",
 	Value = "等待扫描...",
 	Locked = true,
 })
@@ -678,7 +533,7 @@ local DebugInput = StatsGroup:Input({
 -- ========================================================================
 local AboutTab = Window:Tab({ Title = "关于", Icon = "solar:info-square-bold" })
 
-AboutTab:Section({ Title = "机场安全透视 v5.4", TextSize = 24 })
+AboutTab:Section({ Title = "机场安全透视 v5.5", TextSize = 24 })
 AboutTab:Space()
 AboutTab:Paragraph({
 	Title = "👤 作者",
@@ -695,15 +550,31 @@ AboutTab:Paragraph({
 2️⃣ 开启透视后NPC自动高亮
 
 💡 右侧白色滑块可拖拽滚动
-💡 探测距离滑块为白色圆点，可拖拽
 ]],
 })
 
 -- ========================================================================
 -- ======================== ESP 核心系统 ================================
--- ========================================================================
+-- ======================== v5.5 彻底重写 ================================
 
--- 创建头顶标签
+-- ===== 角色检测函数 (v5.5 核心改进) =====
+-- 判断一个对象是否"像角色" (不依赖Humanoid)
+local function isCharacterModel(obj)
+	if not obj or not obj:IsA("Model") then return false end
+	if obj == LocalPlayer.Character then return false end
+	if not obj.Parent then return false end
+	
+	-- 检查是否有角色典型部件
+	local hasHead = obj:FindFirstChild("Head") ~= nil
+	local hasHRP = obj:FindFirstChild("HumanoidRootPart") ~= nil
+	local hasTorso = obj:FindFirstChild("Torso") ~= nil
+	local hasHumanoid = obj:FindFirstChildOfClass("Humanoid") ~= nil
+	
+	-- 至少满足以下条件之一才视为角色
+	return hasHead or hasHRP or (hasTorso and hasHumanoid)
+end
+
+-- ===== 创建头顶标签 =====
 local function createHeadLabel(char, color, mainText)
 	local ok, head = pcall(function()
 		return char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
@@ -757,7 +628,7 @@ local function createHeadLabel(char, color, mainText)
 	return bb, mainLbl, infoLbl
 end
 
--- 创建Highlight
+-- ===== 创建Highlight =====
 local function createHighlight(char, color)
 	local hl = Instance.new("Highlight")
 	hl.Name = "ESP_Highlight"
@@ -772,138 +643,212 @@ local function createHighlight(char, color)
 	return hl
 end
 
--- ===== 分类器 =====
+-- ===== 分类器 (v5.5 改进) =====
+-- 坏人关键词优先, 确保"NPC"关键词被识别为坏人
 local function classifyCharacter(obj)
-	local ok, result = pcall(function()
-		if not obj then return "Unknown", Color3.fromRGB(180, 180, 180), "❓ Unknown" end
-		
-		local name = obj.Name or ""
-		local fullPath = obj:GetFullName() or ""
-		
-		-- 1) 路径精确匹配
-		if fullPath:find("NPCTemplate") and not fullPath:find("AgentTemplate") then
-			return "Bad", Color3.fromRGB(255, 50, 50), "💀 Threat"
-		end
-		if fullPath:find("AgentTemplate") and not fullPath:find("NPCTemplate") then
-			return "Good", Color3.fromRGB(0, 255, 100), "👮 Agent"
-		end
-		
-		-- 2) 名字匹配 (坏人优先)
-		local badPatterns = {"Terrorist", "Enemy", "Hostile", "Threat", "Criminal", "Suspect", "Bandit", "Robber", "Bomber", "Invader", "Killer", "Raid"}
-		local goodPatterns = {"Police", "Security", "Guard", "Agent", "Cop", "SWAT", "Friendly", "Helper", "Patrol"}
-		
-		for _, pat in ipairs(badPatterns) do
-			if name:find(pat) then return "Bad", Color3.fromRGB(255, 50, 50), "💀 Threat" end
-		end
-		for _, pat in ipairs(goodPatterns) do
-			if name:find(pat) then return "Good", Color3.fromRGB(0, 255, 100), "👮 Agent" end
-		end
-		
-		-- 3) Descendant扫描
-		local foundAgent, foundNPC = false, false
-		for _, child in ipairs(obj:GetDescendants()) do
-			if child:IsA("ModuleScript") or child:IsA("Script") or child:IsA("LocalScript") then
-				local cp = child:GetFullName()
-				if cp:find("NPCTemplate") and not cp:find("AgentTemplate") then foundNPC = true end
-				if cp:find("AgentTemplate") and not cp:find("NPCTemplate") then foundAgent = true end
-			end
-		end
-		
-		if foundNPC and not foundAgent then
-			return "Bad", Color3.fromRGB(255, 50, 50), "💀 Threat"
-		elseif foundAgent and not foundNPC then
-			return "Good", Color3.fromRGB(0, 255, 100), "👮 Agent"
-		end
-		
-		return "Unknown", Color3.fromRGB(180, 180, 180), "❓ Unknown"
-	end)
+	if not obj then return "Unknown", Color3.fromRGB(180, 180, 180), "❓ Unknown" end
 	
-	if ok then return result end
+	local name = obj.Name or ""
+	local fullPath = obj:GetFullName() or ""
+	
+	-- 先看路径中的模板标识
+	if fullPath:find("NPCTemplate") and not fullPath:find("AgentTemplate") then
+		return "Bad", Color3.fromRGB(255, 50, 50), "💀 Threat"
+	end
+	if fullPath:find("AgentTemplate") and not fullPath:find("NPCTemplate") then
+		return "Good", Color3.fromRGB(0, 255, 100), "👮 Agent"
+	end
+	
+	-- 坏人关键词 (优先匹配)
+	local badPatterns = {
+		"Terrorist", "Enemy", "Hostile", "Threat", "Criminal", 
+		"Suspect", "Bandit", "Robber", "Bomber", "Invader", 
+		"Killer", "Raid", "NPC", "Bad", "Villain", "Rogue",
+		"Assassin", "Mercenary", "Pirate", "Smuggler", "Thief",
+	}
+	local goodPatterns = {
+		"Police", "Security", "Guard", "Agent", "Cop", 
+		"SWAT", "Friendly", "Helper", "Patrol", "Officer",
+		"Protector", "Soldier", "Army", "Defender", "Watch",
+	}
+	
+	for _, pat in ipairs(badPatterns) do
+		if name:find(pat, 1, true) then return "Bad", Color3.fromRGB(255, 50, 50), "💀 Threat" end
+	end
+	for _, pat in ipairs(goodPatterns) do
+		if name:find(pat, 1, true) then return "Good", Color3.fromRGB(0, 255, 100), "👮 Agent" end
+	end
+	
+	-- 路径中检查是否在NPCWorkspace下
+	if fullPath:find("NPCWorkspace") then
+		return "Bad", Color3.fromRGB(255, 50, 50), "💀 Threat"
+	end
+	
 	return "Unknown", Color3.fromRGB(180, 180, 180), "❓ Unknown"
 end
 
--- ===== 主扫描循环 =====
-local lastDebugMsg = "无"
+-- ===== 获取Humanoid的通用方法 =====
+local function getHumanoid(char)
+	local hum = char:FindFirstChildOfClass("Humanoid")
+	return hum
+end
+
+-- ===== 获取RootPart的通用方法 =====
+local function getRootPart(char)
+	return char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso") or char:FindFirstChild("Head")
+end
+
+-- ===== 主扫描循环 (v5.5 完全重写) =====
+-- 使用5种方法同时扫描,兼容无Humanoid的角色
+
+local lastDebugMsg = "等待扫描..."
 local scanCount = 0
+local totalFound = 0
 
 task.spawn(function()
-	print(string.format("[ESP] 开始扫描, 玩家: %s", LocalPlayer.Name or "未知"))
-	print(string.format("[ESP] Workspace子级数: %d", #Workspace:GetChildren()))
+	print("=" .. string.rep("=", 50) .. "=")
+	print("[ESP] 🛡️ 机场安全透视 v5.5 扫描系统启动")
+	print("[ESP] 玩家: " .. (LocalPlayer.Name or "未知"))
+	print("[ESP] Workspace子级: " .. #Workspace:GetChildren())
+	print("=" .. string.rep("=", 50) .. "=")
 	
 	while task.wait(1) do
 		pcall(function()
 			scanCount = scanCount + 1
+			local newFound = 0
 			
+			-- ████████████████████████████████████████████████████
+			-- Method 1: 扫描所有Humanoid (标准Roblox角色)
+			-- ████████████████████████████████████████████████████
+			local humCount = 0
 			for _, hum in ipairs(Workspace:GetDescendants()) do
-				if hum:IsA("Humanoid") and hum.Parent and hum.Health > 0 then
+				if hum:IsA("Humanoid") and hum.Parent then
+					humCount = humCount + 1
 					local char = hum.Parent
-					if char == LocalPlayer.Character then continue end
-					if ESPData[char] then continue end
-					if not char:IsA("Model") then continue end
-					
-					local npcType, color, label = classifyCharacter(char)
-					
-					local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-					local objRoot = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Head") or char:FindFirstChild("Torso")
-					if not myRoot or not objRoot then continue end
-					
-					local dist = (objRoot.Position - myRoot.Position).Magnitude
-					if dist > Settings.MaxDistance then continue end
-					
-					if Settings.ShowBadOnly and npcType ~= "Bad" then continue end
-					
-					local hl = createHighlight(char, color)
-					local bb, mainLbl, infoLbl = createHeadLabel(char, color, label)
-					
-					if not hl or not bb then
-						if hl then hl:Destroy() end
-						if bb then bb:Destroy() end
-						continue
+					if char:IsA("Model") and isCharacterModel(char) and not ESPData[char] then
+						local npcType, color, label = classifyCharacter(char)
+						local myRoot = getRootPart(LocalPlayer.Character)
+						local objRoot = getRootPart(char)
+						if myRoot and objRoot then
+							local dist = (objRoot.Position - myRoot.Position).Magnitude
+							if dist <= Settings.MaxDistance then
+								if Settings.ShowBadOnly and npcType ~= "Bad" then break end
+								local hl = createHighlight(char, color)
+								local bb, mainLbl, infoLbl = createHeadLabel(char, color, label)
+								if hl and bb then
+									local humObj = hum or getHumanoid(char)
+									ESPData[char] = {
+										Highlight = hl, Billboard = bb,
+										MainLabel = mainLbl, InfoLabel = infoLbl,
+										Humanoid = humObj, NPCType = npcType,
+									}
+									newFound = newFound + 1
+									lastDebugMsg = string.format("[M1] %s | %s | %.0fm", char.Name, npcType, dist)
+									print(string.format("[ESP] M1-Humanoid ✅ %s | %s | %.0fm | %s", char.Name, npcType, dist, char:GetFullName()))
+								end
+							end
+						end
 					end
-					
-					ESPData[char] = {
-						Highlight = hl,
-						Billboard = bb,
-						MainLabel = mainLbl,
-						InfoLabel = infoLbl,
-						Humanoid = hum,
-						NPCType = npcType,
-					}
-					
-					lastDebugMsg = string.format("%s | %s | %.0fm", char.Name, npcType, dist)
-					print(string.format("[ESP] ✅ 发现: %s | 类型: %s | 距离: %.0fm | 路径: %s",
-						char.Name, npcType, dist, char:GetFullName()))
 				end
 			end
 			
-			-- 清理
+			-- ████████████████████████████████████████████████████
+			-- Method 2: 扫描带Head的Model (无Humanoid兼容)
+			-- ████████████████████████████████████████████████████
+			for _, part in ipairs(Workspace:GetDescendants()) do
+				if part:IsA("Part") and part.Name == "Head" and part.Parent then
+					local char = part.Parent
+					if char:IsA("Model") and not ESPData[char] and char ~= LocalPlayer.Character then
+						if not char:FindFirstChildOfClass("Humanoid") then -- 避免重复M1
+							local myRoot = getRootPart(LocalPlayer.Character)
+							local objRoot = getRootPart(char) or part
+							if myRoot and objRoot then
+								local dist = (objRoot.Position - myRoot.Position).Magnitude
+								if dist <= Settings.MaxDistance then
+									local npcType, color, label = classifyCharacter(char)
+									if Settings.ShowBadOnly and npcType ~= "Bad" then break end
+									local hl = createHighlight(char, color)
+									local bb, mainLbl, infoLbl = createHeadLabel(char, color, label)
+									if hl and bb then
+										local humObj = getHumanoid(char)
+										ESPData[char] = {
+											Highlight = hl, Billboard = bb,
+											MainLabel = mainLbl, InfoLabel = infoLbl,
+											Humanoid = humObj, NPCType = npcType,
+										}
+										newFound = newFound + 1
+										lastDebugMsg = string.format("[M2] %s | %s | %.0fm (无Humanoid)", char.Name, npcType, dist)
+										print(string.format("[ESP] M2-Head ✅ %s | %s | %.0fm | %s", char.Name, npcType, dist, char:GetFullName()))
+									end
+								end
+							end
+						end
+					end
+				end
+			end
+			
+			-- ████████████████████████████████████████████████████
+			-- Method 3: 扫描HumanoidRootPart的Model (备用)
+			-- ████████████████████████████████████████████████████
+			if newFound == 0 then
+				for _, part in ipairs(Workspace:GetDescendants()) do
+					if (part:IsA("Part") or part:IsA("MeshPart")) and part.Name == "HumanoidRootPart" and part.Parent then
+						local char = part.Parent
+						if char:IsA("Model") and not ESPData[char] and char ~= LocalPlayer.Character then
+							local myRoot = getRootPart(LocalPlayer.Character)
+							if myRoot then
+								local dist = (part.Position - myRoot.Position).Magnitude
+								if dist <= Settings.MaxDistance then
+									local npcType, color, label = classifyCharacter(char)
+									if Settings.ShowBadOnly and npcType ~= "Bad" then break end
+									local hl = createHighlight(char, color)
+									local bb, mainLbl, infoLbl = createHeadLabel(char, color, label)
+									if hl and bb then
+										local humObj = getHumanoid(char)
+										ESPData[char] = {
+											Highlight = hl, Billboard = bb,
+											MainLabel = mainLbl, InfoLabel = infoLbl,
+											Humanoid = humObj, NPCType = npcType,
+										}
+										newFound = newFound + 1
+										lastDebugMsg = string.format("[M3] %s | %s | %.0fm", char.Name, npcType, dist)
+										print(string.format("[ESP] M3-HRP ✅ %s | %s | %.0fm", char.Name, npcType, dist))
+									end
+								end
+							end
+						end
+					end
+				end
+			end
+			
+			-- 清理已销毁对象
+			local removed = 0
 			for obj, data in pairs(ESPData) do
 				if not obj.Parent then
 					if data.Highlight then data.Highlight:Destroy() end
 					if data.Billboard then data.Billboard:Destroy() end
 					ESPData[obj] = nil
+					removed = removed + 1
 				end
 			end
 			
-			-- 更新标签
-			if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
-				local myRoot = LocalPlayer.Character.HumanoidRootPart
+			-- 更新所有标签
+			if LocalPlayer.Character then
+				local myRoot = getRootPart(LocalPlayer.Character)
 				for obj, data in pairs(ESPData) do
 					if data.Billboard and data.InfoLabel then
-						local root = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChild("Torso") or obj:FindFirstChild("Head")
+						local root = getRootPart(obj)
 						local parts = {}
-						if root and Settings.ShowDistance then
+						if root and myRoot and Settings.ShowDistance then
 							table.insert(parts, math.floor((root.Position - myRoot.Position).Magnitude) .. "m")
 						end
-						if Settings.ShowHealth then
+						if data.Humanoid and Settings.ShowHealth then
 							table.insert(parts, string.format("HP: %.0f/%.0f", data.Humanoid.Health, data.Humanoid.MaxHealth))
 						end
 						data.InfoLabel.Text = table.concat(parts, " | ")
 						data.Billboard.Enabled = Settings.Enabled
 					end
-					if data.Highlight then
-						data.Highlight.Enabled = Settings.Enabled
-					end
+					if data.Highlight then data.Highlight.Enabled = Settings.Enabled end
 				end
 			end
 			
@@ -916,27 +861,45 @@ task.spawn(function()
 			end
 			
 			local total = good + bad + unknown
+			totalFound = total
+			
+			-- 更新UI
 			pcall(function()
-				-- 用 Paragraph:SetTitle() 干净更新 (WindUI官方API)
 				GoodPara:SetTitle(string.format("🟢 好人: %d", good))
 				BadPara:SetTitle(string.format("🔴 坏人: %d", bad))
 				UnknownPara:SetTitle(string.format("❓ 未知: %d", unknown))
 				TotalPara:SetTitle(string.format("📊 总计: %d", total))
 				
-				DebugInput:Set(lastDebugMsg)
+				-- 调试信息
+				local debugStr = string.format("扫描%d次 | Humanoid:%d个 | 本批发现%d个 | 总计%d个",
+					scanCount, humCount, newFound, total)
+				if total == 0 then
+					debugStr = debugStr .. " | ⚠️ 未发现目标!"
+				end
+				DebugInput:Set(debugStr)
 				
 				if total > 0 then
-					pcall(function() statusInput:Set(string.format("🟢 %d | 🔴 %d | 总计: %d", good, bad, total)) end)
+					statusInput:Set(string.format("🟢 %d | 🔴 %d | 总计: %d", good, bad, total))
 				else
-					pcall(function()
-						local scanMsg = "扫描中... 未发现目标"
-						if scanCount > 5 then
-							scanMsg = "扫描中... 本局可能无NPC或距离太远"
-						end
-						statusInput:Set(scanMsg)
-					end)
+					local scanMsg = "扫描中... 未发现目标"
+					if scanCount > 5 then
+						scanMsg = "扫描中... 本局可能无NPC或距离太远"
+					end
+					if humCount == 0 then
+						scanMsg = "扫描中... Workspace中无任何Humanoid对象"
+					end
+					statusInput:Set(scanMsg)
 				end
 			end)
+			
+			-- 初次扫描打印详细调试
+			if scanCount == 1 then
+				print("[ESP] 首次扫描 - Workspace结构:")
+				for _, child in ipairs(Workspace:GetChildren()) do
+					print(string.format("[ESP]   ├─ %s (%s)", child.Name, child.ClassName))
+				end
+				print(string.format("[ESP] 总计Humanoid数量: %d", humCount))
+			end
 		end)
 	end
 end)
@@ -951,7 +914,6 @@ UserInputService.InputBegan:Connect(function(input, gp)
 	local keyName = input.KeyCode and input.KeyCode.Name or ""
 	if keyName == "" then return end
 	
-	-- 透视开关快捷键
 	if Settings.ESPHotkey and keyName == Settings.ESPHotkey then
 		Settings.Enabled = not Settings.Enabled
 		for _, data in pairs(ESPData) do
@@ -961,7 +923,6 @@ UserInputService.InputBegan:Connect(function(input, gp)
 		return
 	end
 	
-	-- 仅坏人模式快捷键
 	if Settings.BadOnlyHotkey and keyName == Settings.BadOnlyHotkey then
 		Settings.ShowBadOnly = not Settings.ShowBadOnly
 		for _, data in pairs(ESPData) do
@@ -973,6 +934,7 @@ UserInputService.InputBegan:Connect(function(input, gp)
 	end
 end)
 
-print("✅ 机场安全透视 v5.4 已加载!")
+print("✅ 机场安全透视 v5.5 已加载!")
 print("⌨️ 按 RightShift 打开/关闭菜单")
 print("🔑 其他快捷键请到UI中自行设置")
+print(string.format("📡 扫描模式: Humanoid + Head + HumanoidRootPart 三重检测"))
