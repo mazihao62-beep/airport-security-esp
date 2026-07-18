@@ -1,7 +1,7 @@
 --[[
-    机场安全透视脚本 v9.0
+    机场安全透视脚本 v10.0
     作者: b站英吉利超入_
-    功能: ESP透视 + 好人/坏人识别 + 配置保存 + 毛玻璃效果
+    功能: ESP透视 + 好人/坏人识别 + 调试面板
 ]]
 
 -- ========== 服务 ==========
@@ -10,11 +10,10 @@ local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 local CoreGui = game:GetService("CoreGui")
 
--- 检测平台
 local IsMobile = false
 pcall(function() IsMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled end)
 
--- ========== 配置（所有功能默认关闭） ==========
+-- ========== 配置 ==========
 local Settings = {
     Enabled = false, BadOnly = false, ShowDistance = false, ShowHealth = false,
     MaxRange = 500,
@@ -31,55 +30,227 @@ local Keybinds = {}
 local PopupConfirmed = false
 local TabElements = {}
 local ConfigName = "default"
+local DebugLog = {}
 
--- ========== NPC 分类器 ==========
+local function debugPrint(msg)
+    table.insert(DebugLog, msg)
+    if #DebugLog > 100 then table.remove(DebugLog, 1) end
+    print("[ESP调试] " .. msg)
+end
+
+-- ========== NPC 分类器 v2（全面检测） ==========
+local function getAllAttributes(obj)
+    local attrs = {}
+    if not obj then return attrs end
+    pcall(function()
+        for _, attr in ipairs(obj:GetAttributes()) do
+            attrs[attr] = obj:GetAttribute(attr)
+        end
+    end)
+    return attrs
+end
+
 local function classifyNPC(character, humanoid)
     local name = character.Name or ""
-    -- 1: NPCType 属性 (NPCSetup.lua 源码确认)
-    local npcType = nil
-    if humanoid then pcall(function() npcType = humanoid:GetAttribute("NPCType") end) end
-    if npcType == "Agent" then return "Good" end
-    if npcType == "Enemy" then return "Bad" end
-    -- 2: 中文关键词（优先级高）
-    for _, kw in ipairs({"警察","保安","警卫","警","守卫","士兵","军官","长官","巡逻","特工","安全","安保","护卫","卫兵"}) do
-        if name:find(kw) then return "Good" end
-    end
-    for _, kw in ipairs({"恐怖","匪徒","匪","敌人","坏","犯罪","袭击","暴徒","杀手","叛军","武装","劫匪","入侵"}) do
-        if name:find(kw) then return "Bad" end
-    end
-    -- 3: 英文关键词
-    for _, kw in ipairs({"Police","Security","Guard","Agent","Officer","Sheriff","Soldier","Patrol","Cop","Marshal"}) do
-        if name:find(kw,1,true) then return "Good" end
-    end
-    for _, kw in ipairs({"Terrorist","Enemy","Hostile","Criminal","Threat","Suspect","Bandit","Mercenary","Attacker"}) do
-        if name:find(kw,1,true) then return "Bad" end
-    end
-    -- 4: 路径检测
     local path = ""
     pcall(function() path = character:GetFullName() end)
-    if path:find("AgentTemplate") then return "Good" end
-    if path:find("NPCTemplate") then return "Bad" end
-    -- 5: TeamColor
+
+    -- ===== 调试信息采集 =====
+    local debugInfo = {Name = name, Path = path, humanoid = humanoid ~= nil}
+    
+    -- 采集Humanoid属性
     if humanoid then
-        local ok, tc = pcall(function() return humanoid.TeamColor end)
-        if ok and tc and tc.Name then
-            if tc.Name:find("Bright blue") or tc.Name:find("Bright green") or tc.Name:find("White") then return "Good" end
-            if tc.Name:find("Bright red") or tc.Name:find("Bright orange") or tc.Name:find("Brown") then return "Bad" end
+        local attrs = getAllAttributes(humanoid)
+        debugInfo.HumanoidAttributes = attrs
+        for k, v in pairs(attrs) do
+            debugPrint(string.format("  属性: Humanoid.%s = %s", k, tostring(v)))
         end
     end
-    -- 6: 工具检测
+    
+    -- 采集Character属性
+    local charAttrs = getAllAttributes(character)
+    debugInfo.CharacterAttributes = charAttrs
+    for k, v in pairs(charAttrs) do
+        debugPrint(string.format("  属性: Character.%s = %s", k, tostring(v)))
+    end
+
+    -- 采集RootPart颜色
+    local root = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Torso")
+    if root then
+        debugInfo.RootColor = root.BrickColor.Name
+    end
+
+    -- 采集Torso/上衣颜色
+    local torso = character:FindFirstChild("Torso") or character:FindFirstChild("UpperTorso")
+    if torso then
+        debugInfo.TorsoColor = torso.BrickColor.Name
+    end
+    local pants = character:FindFirstChild("Pants") or character:FindFirstChild("LowerTorso")
+    if pants then
+        debugInfo.PantsColor = pants.BrickColor.Name
+    end
+
+    -- 采集工具
     local tool = character:FindFirstChildOfClass("Tool")
+    if tool then debugInfo.Tool = tool.Name end
+    
+    -- 采集父级容器
+    if character.Parent then debugInfo.Parent = character.Parent.Name end
+
+    debugPrint(string.format("检测到: %s | 路径: %s", name, path))
+    debugPrint(string.format("  Humanoid属性: %d个, Character属性: %d个", 
+        debugInfo.HumanoidAttributes and #debugInfo.HumanoidAttributes or 0,
+        debugInfo.CharacterAttributes and #debugInfo.CharacterAttributes or 0))
+
+    -- ===== 分类逻辑 =====
+
+    -- 1. 检查所有可能的属性名
+    local attributeChecks = {"NPCType", "Type", "Team", "Faction", "Role", "Class", "Group", "Kind", "Identity"}
+    for _, attrName in ipairs(attributeChecks) do
+        local val = nil
+        if humanoid then pcall(function() val = humanoid:GetAttribute(attrName) end) end
+        if val == nil then pcall(function() val = character:GetAttribute(attrName) end) end
+        if val ~= nil then
+            local vs = tostring(val):lower()
+            debugPrint(string.format("  属性[%s] = %s", attrName, tostring(val)))
+            for _, good in ipairs({"agent", "good", "friendly", "ally", "police", "friend", "blue", "guard", "clean"}) do
+                if vs:find(good) then return "Good" end
+            end
+            for _, bad in ipairs({"enemy", "bad", "hostile", "terrorist", "criminal", "foe", "enem", "red", "danger"}) do
+                if vs:find(bad) then return "Bad" end
+            end
+        end
+    end
+
+    -- 2. 名字关键词检测（中文+英文混用）
+    debugPrint(string.format("  名字: %s", name))
+    
+    -- 好人关键词
+    local goodKeywords = {
+        "警察", "保安", "警卫", "警", "守卫", "士兵", "军官", "长官", "巡逻",
+        "特工", "安全", "安保", "护卫", "卫兵", "军队", "公安", "辅警",
+        "Police", "Security", "Guard", "Agent", "Officer", "Sheriff", "Soldier",
+        "Patrol", "Cop", "Marshal", "Blue", "Friendly", "Ally", "Good",
+    }
+    for _, kw in ipairs(goodKeywords) do
+        if name:find(kw, 1, true) or name:lower():find(kw:lower(), 1, true) then
+            debugPrint(string.format("  → 名字匹配好人关键词: %s", kw))
+            return "Good"
+        end
+    end
+
+    -- 坏人关键词
+    local badKeywords = {
+        "恐怖", "匪徒", "匪", "敌人", "坏", "犯罪", "袭击", "暴徒", "杀手",
+        "叛军", "武装", "劫匪", "入侵", "歹徒", "黑帮", "毒贩", "绑匪",
+        "Terrorist", "Enemy", "Hostile", "Criminal", "Threat", "Suspect",
+        "Bandit", "Mercenary", "Attacker", "Red", "Danger", "Bad",
+    }
+    for _, kw in ipairs(badKeywords) do
+        if name:find(kw, 1, true) or name:lower():find(kw:lower(), 1, true) then
+            debugPrint(string.format("  → 名字匹配坏人关键词: %s", kw))
+            return "Bad"
+        end
+    end
+
+    -- 3. 身体部件颜色检测（警察蓝色系 vs 恐怖分子深色/红色系）
+    local partColors = {}
+    for _, part in ipairs(character:GetChildren()) do
+        if part:IsA("BasePart") then
+            local cname = part.BrickColor.Name
+            partColors[cname] = (partColors[cname] or 0) + 1
+        end
+    end
+    debugPrint(string.format("  部件颜色: %d种", #partColors))
+    for c, n in pairs(partColors) do
+        debugPrint(string.format("    颜色 %s: %d个", c, n))
+    end
+
+    -- 警察常见颜色
+    local goodColors = {"Bright blue", "Royal blue", "Navy blue", "Blue", "Medium blue", 
+                        "Bright green", "White", "Light blue", "Bright bluish violet"}
+    local badColors = {"Bright red", "Really red", "Red", "Brown", "Dark grey", 
+                       "Black", "Dark stone grey", "Earth brown", "Maroon"}
+    
+    local goodColorCount = 0
+    local badColorCount = 0
+    for c, n in pairs(partColors) do
+        for _, gc in ipairs(goodColors) do
+            if c:find(gc, 1, true) or c:lower():find("blue") or c:lower():find("green") then
+                goodColorCount = goodColorCount + n
+            end
+        end
+        for _, bc in ipairs(badColors) do
+            if c:find(bc, 1, true) or c:lower():find("red") or c:lower():find("black") then
+                badColorCount = badColorCount + n
+            end
+        end
+    end
+
+    -- 如果蓝色/绿色部件更多 → 好人；红色/黑色部件更多 → 坏人
+    if goodColorCount > badColorCount and goodColorCount >= 3 then
+        debugPrint(string.format("  → 颜色判断: 好人(蓝绿%d > 红黑%d)", goodColorCount, badColorCount))
+        return "Good"
+    end
+    if badColorCount > goodColorCount and badColorCount >= 3 then
+        debugPrint(string.format("  → 颜色判断: 坏人(红黑%d > 蓝绿%d)", badColorCount, goodColorCount))
+        return "Bad"
+    end
+
+    -- 4. 父级容器检测
+    if character.Parent then
+        local parentName = character.Parent.Name
+        debugPrint(string.format("  父级容器: %s", parentName))
+        for _, kw in ipairs(goodKeywords) do
+            if parentName:find(kw, 1, true) then
+                debugPrint(string.format("  → 父级匹配好人: %s", kw))
+                return "Good"
+            end
+        end
+        for _, kw in ipairs(badKeywords) do
+            if parentName:find(kw, 1, true) then
+                debugPrint(string.format("  → 父级匹配坏人: %s", kw))
+                return "Bad"
+            end
+        end
+    end
+
+    -- 5. 工具检测
     if tool then
         local tn = tool.Name
-        if tn:find("Arrest") or tn:find("Taser") or tn:find("Bat") or tn:find("Radio") then return "Good" end
+        debugPrint(string.format("  工具: %s", tn))
+        for _, kw in ipairs({"Arrest", "Taser", "Bat", "Radio", "Handcuff", "警", "盾", "枪"}) do
+            if tn:find(kw, 1, true) then
+                debugPrint(string.format("  → 工具匹配好人: %s", kw))
+                return "Good"
+            end
+        end
+        for _, kw in ipairs({"Knife", "Bomb", "Grenade", "RPG", "Explosive", "刀", "炸"}) do
+            if tn:find(kw, 1, true) then
+                debugPrint(string.format("  → 工具匹配坏人: %s", kw))
+                return "Bad"
+            end
+        end
     end
-    return nil  -- 无法判断则跳过
+
+    -- 6. 路径检测（最后手段）
+    local pathLower = path:lower()
+    if pathLower:find("agent") or pathLower:find("police") or pathLower:find("friendly") then
+        debugPrint("  → 路径匹配好人")
+        return "Good"
+    end
+    if pathLower:find("npc") or pathLower:find("enemy") or pathLower:find("terror") then
+        debugPrint("  → 路径匹配坏人")
+        return "Bad"
+    end
+
+    debugPrint("  → 无法判断，跳过")
+    return nil
 end
 
 -- ========== 判断真实玩家 ==========
 local function isRealPlayer(character)
-    if not character then return false end
-    if not character:IsA("Model") then return false end
+    if not character or not character:IsA("Model") then return false end
     for _, p in ipairs(Players:GetPlayers()) do
         if p.Character == character then return true end
     end
@@ -141,7 +312,6 @@ local function createESP(character, npcType)
     return true
 end
 
--- ========== 移除 ESP ==========
 local function removeESP(character)
     if ESPObjects[character] then
         local obj = ESPObjects[character]
@@ -154,14 +324,12 @@ local function removeESP(character)
     end
 end
 
--- ========== 清理 ==========
 local function cleanESP()
     for char, _ in pairs(ESPObjects) do
         if not char or not char.Parent then removeESP(char) end
     end
 end
 
--- ========== 更新头顶标签 ==========
 local function updateLabels()
     local myChar = Players.LocalPlayer and Players.LocalPlayer.Character
     local myRoot = myChar and (myChar:FindFirstChild("HumanoidRootPart") or myChar:FindFirstChild("Torso"))
@@ -181,7 +349,6 @@ local function updateLabels()
     end
 end
 
--- ========== 更新所有ESP显隐 ==========
 local function updateAllESP()
     for char, obj in pairs(ESPObjects) do
         local npcType = TrackedNPCs[char]
@@ -191,24 +358,30 @@ local function updateAllESP()
     end
 end
 
--- ========== 扫描 NPC ==========
+-- ========== 扫描 NPC（深度遍历） ==========
 local function scanNPCs()
     if IsScanning then return end; IsScanning = true
+    debugPrint("===== 开始扫描 =====")
     pcall(function()
         for _, obj in ipairs(Workspace:GetDescendants()) do
             local humanoid, character = nil, nil
             if obj:IsA("Humanoid") then humanoid = obj; character = obj.Parent end
             if character and humanoid and not TrackedNPCs[character] and not isRealPlayer(character) then
-                local npcType = classifyNPC(character, humanoid)
-                if npcType then createESP(character, npcType) end
+                if character:FindFirstChild("Head") or character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Torso") then
+                    debugPrint(string.format("发现NPC (Humanoid): %s", character.Name))
+                    local npcType = classifyNPC(character, humanoid)
+                    if npcType then createESP(character, npcType) end
+                end
             end
             task.wait()
         end
+        -- 第二遍：找无Humanoid但有Head的角色模型
         for _, obj in ipairs(Workspace:GetDescendants()) do
             if obj.Name == "Head" and obj:IsA("BasePart") and not obj:IsA("Tool") then
                 local model = obj.Parent
                 if model and model:IsA("Model") and not TrackedNPCs[model] and not isRealPlayer(model) then
                     if not model:FindFirstChildOfClass("Humanoid") then
+                        debugPrint(string.format("发现NPC (无Humanoid): %s", model.Name))
                         local npcType = classifyNPC(model, nil)
                         if npcType then createESP(model, npcType) end
                     end
@@ -217,10 +390,10 @@ local function scanNPCs()
             task.wait()
         end
     end)
+    debugPrint(string.format("===== 扫描结束: 好人%d 坏人%d =====", Stats.Good, Stats.Bad))
     IsScanning = false
 end
 
--- ========== 美化 UI ==========
 local function beautifyUI()
     pcall(function()
         for _, s in ipairs(CoreGui:GetDescendants()) do
@@ -243,11 +416,11 @@ if s and r then
     WindUI = r
     pcall(function() WindUI:SetTheme("Dark") end)
 
-    -- ===== Popup 确认弹窗 =====
+    -- Popup 确认弹窗
     WindUI:Popup({
-        Title = "机场安全透视 v9.0",
+        Title = "机场安全透视 v10.0",
         Icon = "solar:info-square-bold",
-        Content = "👁 透视高亮 - Highlight穿墙显示所有NPC\n🔍 自动识别 - 区分好人(绿)与坏人(红)\n🏷 头顶标签 - 显示类型/距离/血量\n🔧 自定义快捷键 - 自由绑定按键\n💾 配置保存 - 自动保存/读取设置\n✨ 毛玻璃效果 - 支持透明/Acrylic\n\n⚠️ 加载后所有功能默认关闭，需手动开启",
+        Content = "👁 透视高亮 - Highlight穿墙显示所有NPC\n🔍 智能识别 - 多维度区分好人(绿)与坏人(红)\n🏷 头顶标签 - 显示类型/距离/血量\n🔧 自定义快捷键 - 自由绑定按键\n💾 配置保存 - 自动保存/读取设置\n📋 调试面板 - 实时查看NPC检测信息\n\n⚠️ 加载后所有功能默认关闭，需手动开启",
         Buttons = {
             { Title = "取消", Callback = function() end, Variant = "Tertiary" },
             { Title = "确认加载", Icon = "solar:arrow-right-bold", Callback = function()
@@ -268,7 +441,6 @@ if s and r then
         }
     })
 
-    -- ===== 等待确认后启动 =====
     task.spawn(function()
         while not PopupConfirmed do task.wait(0.5) end
         task.wait(1.5)
@@ -277,7 +449,7 @@ if s and r then
         task.spawn(function()
             while true do
                 pcall(function() cleanESP(); scanNPCs() end)
-                task.wait(3)
+                task.wait(5)
             end
         end)
 
@@ -292,13 +464,20 @@ if s and r then
                     if TabElements.ScanI then
                         TabElements.ScanI:Set(IsScanning and "📡 扫描中..." or "✅ 就绪")
                     end
+                    if TabElements.DebugI then
+                        local logs = {}
+                        for i = math.max(1, #DebugLog - 4), #DebugLog do
+                            table.insert(logs, DebugLog[i])
+                        end
+                        TabElements.DebugI:Set(table.concat(logs, "\n"))
+                    end
                     updateLabels()
                 end)
                 task.wait(0.5)
             end
         end)
 
-        -- ===== 快捷键监听 =====
+        -- 快捷键监听
         UserInputService.InputBegan:Connect(function(input, gameProcessed)
             if gameProcessed then return end
             if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
@@ -325,7 +504,6 @@ if s and r then
         end)
     end)
 
-    -- ===== 创建窗口 =====
     function createWindow()
         if WindowRef then return end
 
@@ -336,8 +514,8 @@ if s and r then
                 Icon = "solar:shield-warning-bold",
                 Size = UDim2.fromOffset(750, 520),
                 ToggleKey = Enum.KeyCode.RightShift,
-                Folder = "airport-esp",  -- 配置保存必需
-                Acrylic = true,          -- 毛玻璃效果
+                Folder = "airport-esp",
+                Acrylic = true,
                 Resizable = false,
                 SideBarWidth = 180,
                 ScrollBarEnabled = true,
@@ -350,123 +528,98 @@ if s and r then
         end
         WindowRef = win
 
-        -- ===== 主控面板 =====
+        -- 主控面板
         local mainTab = win:Tab({Title="主控面板", Icon="solar:slider-vertical-bold"})
         mainTab:Paragraph({Title="👁 透视控制"})
         Controls.ESPToggle = mainTab:Toggle({
-            Flag = "ESPToggle",
-            Title = "透视开关", Value = false,
+            Flag = "ESPToggle", Title = "透视开关", Value = false,
             Callback = function(v) Settings.Enabled = v; updateAllESP(); if v then task.spawn(scanNPCs) end end
         })
         Controls.BadOnlyToggle = mainTab:Toggle({
-            Flag = "BadOnlyToggle",
-            Title = "仅显示坏人", Value = false,
+            Flag = "BadOnlyToggle", Title = "仅显示坏人", Value = false,
             Callback = function(v) Settings.BadOnly = v; updateAllESP() end
         })
         mainTab:Divider()
         mainTab:Paragraph({Title="📐 显示设置"})
         Controls.DistanceToggle = mainTab:Toggle({
-            Flag = "DistanceToggle",
-            Title = "显示距离", Value = false,
+            Flag = "DistanceToggle", Title = "显示距离", Value = false,
             Callback = function(v) Settings.ShowDistance = v end
         })
         Controls.HealthToggle = mainTab:Toggle({
-            Flag = "HealthToggle",
-            Title = "显示血量", Value = false,
+            Flag = "HealthToggle", Title = "显示血量", Value = false,
             Callback = function(v) Settings.ShowHealth = v end
         })
         mainTab:Divider()
         Controls.RangeSlider = mainTab:Slider({
-            Flag = "RangeSlider",
-            Title = "最大探测距离",
-            Step = 50,
+            Flag = "RangeSlider", Title = "最大探测距离", Step = 50,
             Value = { Min = 50, Max = 1000, Default = 500 },
-            Width = 200,
-            IsTextbox = true,
+            Width = 200, IsTextbox = true,
             Callback = function(v) Settings.MaxRange = v end
         })
 
-        -- ===== 功能设置 =====
+        -- 功能设置
         local funcTab = win:Tab({Title="功能设置", Icon="solar:settings-bold"})
         funcTab:Paragraph({Title="🔑 快捷键设置（点击后按键盘绑定）"})
         Controls.ESPKeybind = funcTab:Keybind({
-            Flag = "ESPKeybind",
-            Title = "透视开关快捷键", Value = "",
+            Flag = "ESPKeybind", Title = "透视开关快捷键", Value = "",
             Callback = function(key) Keybinds.ESP = key end
         })
         Controls.BadOnlyKeybind = funcTab:Keybind({
-            Flag = "BadOnlyKeybind",
-            Title = "仅坏人模式快捷键", Value = "",
+            Flag = "BadOnlyKeybind", Title = "仅坏人模式快捷键", Value = "",
             Callback = function(key) Keybinds.BadOnly = key end
         })
         funcTab:Divider()
         funcTab:Paragraph({Title="💡 提示", Desc="窗口快捷键在UI设置中绑定（默认 RightShift）"})
 
-        -- ===== UI设置 =====
+        -- UI设置
         local uiTab = win:Tab({Title="UI设置", Icon="solar:monitor-bold"})
         uiTab:Paragraph({Title="⚙️ 界面设置"})
         Controls.WindowKeybind = uiTab:Keybind({
-            Flag = "WindowKeybind",
-            Title = "窗口开关快捷键", Value = "RightShift",
+            Flag = "WindowKeybind", Title = "窗口开关快捷键", Value = "RightShift",
             Callback = function(key)
                 Keybinds.Window = key
                 if WindowRef then pcall(function() WindowRef:SetToggleKey(Enum.KeyCode[key]) end) end
             end
         })
         Controls.FloatingBtnToggle = uiTab:Toggle({
-            Flag = "FloatingBtnToggle",
-            Title = "显示悬浮按钮", Value = IsMobile,
+            Flag = "FloatingBtnToggle", Title = "显示悬浮按钮", Value = IsMobile,
             Callback = function(v) if FloatingButtonGui then FloatingButtonGui.Enabled = v end end
         })
         uiTab:Divider()
         uiTab:Paragraph({Title="✨ 视觉效果"})
         Controls.AcrylicToggle = uiTab:Toggle({
-            Flag = "AcrylicToggle",
-            Title = "毛玻璃效果 (Acrylic)", Value = true,
-            Callback = function(v)
-                pcall(function()
-                    WindUI:ToggleAcrylic(v)
-                end)
-            end
+            Flag = "AcrylicToggle", Title = "毛玻璃效果 (Acrylic)", Value = true,
+            Callback = function(v) pcall(function() WindUI:ToggleAcrylic(v) end) end
         })
         Controls.TransparencyToggle = uiTab:Toggle({
-            Flag = "TransparencyToggle",
-            Title = "透明背景", Value = false,
-            Callback = function(v)
-                if WindowRef then
-                    pcall(function() WindowRef:ToggleTransparency(v) end)
-                end
-            end
+            Flag = "TransparencyToggle", Title = "透明背景", Value = false,
+            Callback = function(v) if WindowRef then pcall(function() WindowRef:ToggleTransparency(v) end) end end
         })
         uiTab:Divider()
         uiTab:Paragraph({Title="💡 提示", Desc="窗口默认隐藏，按 RightShift 打开"})
 
-        -- ===== 信息统计 =====
+        -- 信息统计（含调试面板）
         local statsTab = win:Tab({Title="信息统计", Icon="solar:chart-bold"})
         TabElements.GoodP = statsTab:Paragraph({Title="🟢 好人: 0"})
         TabElements.BadP = statsTab:Paragraph({Title="🔴 坏人: 0"})
         TabElements.TotalP = statsTab:Paragraph({Title="📊 总计: 0"})
         statsTab:Divider()
-        TabElements.ScanI = statsTab:Input({
-            Title = "扫描状态", Value = "等待中...", Locked = true
+        TabElements.ScanI = statsTab:Input({Title = "扫描状态", Value = "等待中...", Locked = true})
+        statsTab:Divider()
+        TabElements.DebugI = statsTab:Input({
+            Title = "📋 调试日志", Value = "等待检测...", Locked = true,
+            Desc = "每次扫描会显示NPC的属性信息"
         })
 
-        -- ===== 配置管理 (Config Saving) =====
+        -- 配置管理
         local configTab = win:Tab({Title="配置管理", Icon="solar:diskette-bold"})
         configTab:Paragraph({Title="💾 配置管理", Desc="保存/加载你的所有设置"})
-
         local ConfigNameInput = configTab:Input({
-            Flag = "ConfigNameInput",
-            Title = "配置名称",
-            Value = "default",
+            Flag = "ConfigNameInput", Title = "配置名称", Value = "default",
             Icon = "solar:file-text-bold",
-            Callback = function(value)
-                ConfigName = value
-            end
+            Callback = function(value) ConfigName = value end
         })
-
         configTab:Space()
-
         local ConfigManager = WindowRef.ConfigManager
         local AllConfigs = {}
         pcall(function() AllConfigs = ConfigManager:AllConfigs() end)
@@ -476,26 +629,16 @@ if s and r then
                 if v == "default" then DefaultValue = "default"; break end
             end
         end)
-
         local AllConfigsDropdown = configTab:Dropdown({
-            Title = "已有配置",
-            Desc = "选择要加载的配置",
-            Values = AllConfigs,
-            Value = DefaultValue,
+            Title = "已有配置", Desc = "选择要加载的配置",
+            Values = AllConfigs, Value = DefaultValue,
             Callback = function(value)
-                if value then
-                    ConfigName = value
-                    pcall(function() ConfigNameInput:Set(value) end)
-                end
+                if value then ConfigName = value; pcall(function() ConfigNameInput:Set(value) end) end
             end
         })
-
         configTab:Space()
-
         configTab:Button({
-            Title = "💾 保存配置",
-            Icon = "solar:check-circle-bold",
-            Justify = "Center",
+            Title = "💾 保存配置", Icon = "solar:check-circle-bold", Justify = "Center",
             Color = Color3.fromHex("#305dff"),
             Callback = function()
                 if not ConfigManager then
@@ -505,23 +648,15 @@ if s and r then
                 pcall(function()
                     local config = ConfigManager:Config(ConfigName)
                     if config and config:Save() then
-                        WindUI:Notify({
-                            Title = "✅ 配置已保存",
-                            Content = "配置 '" .. ConfigName .. "' 已保存",
-                            Icon = "solar:check-circle-bold", Duration = 3,
-                        })
+                        WindUI:Notify({Title="✅ 配置已保存", Content="配置 '" .. ConfigName .. "' 已保存", Icon="solar:check-circle-bold", Duration=3})
                         AllConfigsDropdown:Refresh(ConfigManager:AllConfigs())
                     end
                 end)
             end
         })
-
         configTab:Space()
-
         configTab:Button({
-            Title = "📂 加载配置",
-            Icon = "solar:refresh-circle-bold",
-            Justify = "Center",
+            Title = "📂 加载配置", Icon = "solar:refresh-circle-bold", Justify = "Center",
             Color = Color3.fromHex("#10C550"),
             Callback = function()
                 if not ConfigManager then
@@ -531,75 +666,52 @@ if s and r then
                 pcall(function()
                     local config = ConfigManager:CreateConfig(ConfigName, false)
                     if config and config:Load() then
-                        WindUI:Notify({
-                            Title = "✅ 配置已加载",
-                            Content = "配置 '" .. ConfigName .. "' 已加载",
-                            Icon = "solar:refresh-circle-bold", Duration = 3,
-                        })
+                        WindUI:Notify({Title="✅ 配置已加载", Content="配置 '" .. ConfigName .. "' 已加载", Icon="solar:refresh-circle-bold", Duration=3})
                     end
                 end)
             end
         })
-
         configTab:Space()
-
         configTab:Button({
-            Title = "🗑️ 删除配置",
-            Icon = "solar:trash-bin-trash-bold",
-            Justify = "Center",
+            Title = "🗑️ 删除配置", Icon = "solar:trash-bin-trash-bold", Justify = "Center",
             Color = Color3.fromHex("#ff3040"),
             Callback = function()
                 if not ConfigManager then return end
                 pcall(function()
                     local config = ConfigManager:Config(ConfigName)
                     if config and config:Delete() then
-                        WindUI:Notify({
-                            Title = "🗑️ 配置已删除",
-                            Content = "配置 '" .. ConfigName .. "' 已删除",
-                            Icon = "solar:trash-bin-trash-bold", Duration = 3,
-                        })
+                        WindUI:Notify({Title="🗑️ 配置已删除", Content="配置 '" .. ConfigName .. "' 已删除", Icon="solar:trash-bin-trash-bold", Duration=3})
                         AllConfigsDropdown:Refresh(ConfigManager:AllConfigs())
                     end
                 end)
             end
         })
-
         configTab:Divider()
+        configTab:Paragraph({Title="💡 提示", Desc="所有带 Flag 的元素会自动保存/恢复\n包括：透视开关、快捷键、滑块、颜色等"})
 
-        configTab:Paragraph({
-            Title = "💡 提示",
-            Desc = "所有带 Flag 的元素会自动保存/恢复\n包括：透视开关、快捷键、滑块、颜色等"
-        })
-
-        -- ===== 自动加载配置 =====
         task.spawn(function()
             task.wait(1)
             pcall(function()
                 if ConfigManager then
                     local config = ConfigManager:CreateConfig("default", true)
-                    if config then
-                        print("[机场安全透视] 自动加载配置: default")
-                    end
+                    if config then print("[机场安全透视] 自动加载配置: default") end
                 end
             end)
         end)
 
-        -- ===== 关于 =====
+        -- 关于
         local aboutTab = win:Tab({Title="关于", Icon="solar:info-square-bold"})
-        aboutTab:Paragraph({Title="机场安全透视 v9.0", Desc="用于分辨好人与坏人的透视脚本"})
+        aboutTab:Paragraph({Title="机场安全透视 v10.0", Desc="用于分辨好人与坏人的透视脚本"})
         aboutTab:Divider()
         aboutTab:Paragraph({Title="👤 作者", Desc="b站英吉利超入_"})
         aboutTab:Divider()
         local usage = IsMobile and "手机: 点击悬浮按钮" or "PC: 按 RightShift 打开菜单"
         aboutTab:Paragraph({Title="💡 使用说明", Desc=usage})
         aboutTab:Paragraph({Title="⚠️ 提示", Desc="所有功能默认关闭，请在菜单中手动开启"})
-        aboutTab:Paragraph({Title="✨ 高级功能", Desc="配置保存 | 毛玻璃效果 | Solar图标"})
-        aboutTab:Button({
-            Title = "📦 GitHub",
-            Callback = function()
-                pcall(function() WindUI:Notify({Title="仓库地址", Content="github.com/mazihao62-beep/airport-security-esp", Duration=3}) end)
-            end
-        })
+        aboutTab:Paragraph({Title="✨ 高级功能", Desc="配置保存 | 毛玻璃效果 | Solar图标 | 调试面板"})
+        aboutTab:Button({Title="📦 GitHub", Callback=function()
+            pcall(function() WindUI:Notify({Title="仓库地址", Content="github.com/mazihao62-beep/airport-security-esp", Duration=3}) end)
+        end})
 
         -- 手机悬浮按钮
         if IsMobile then
@@ -632,18 +744,16 @@ if s and r then
                         if input.UserInputType==Enum.UserInputType.Touch or input.UserInputType==Enum.UserInputType.MouseButton1 then dragging=false end
                     end)
                     btn.MouseButton1Click:Connect(function()
-                        if WindowRef then
-                            pcall(function() WindowRef:Toggle() end)
-                        end
+                        if WindowRef then pcall(function() WindowRef:Toggle() end) end
                     end)
                 end)
             end)
         end
     end
 
-    print("[机场安全透视] v9.0 已加载 | 作者: b站英吉利超入_")
+    print("[机场安全透视] v10.0 已加载 | 作者: b站英吉利超入_")
 else
-    -- ===== WindUI 加载失败，原生模式 =====
+    -- WindUI 加载失败，原生模式
     print("[机场安全透视] WindUI 加载失败，使用原生模式")
     local msg = Instance.new("Message")
     msg.Text = "⚠️ WindUI 加载失败，使用原生模式 | 点击绿色按钮开关透视"
