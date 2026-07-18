@@ -1,5 +1,5 @@
 --[[
-    机场安全透视脚本 v8.0
+    机场安全透视脚本 v8.0.1
     作者: b站英吉利超入_
     功能: ESP透视 + 好人/坏人识别 + 自定义快捷键
 ]]
@@ -225,7 +225,7 @@ local function scanNPCs()
     IsScanning = false
 end
 
--- ========== 美化 UI ==========
+-- ========== 美化 UI（白色滚动条） ==========
 local function beautifyUI()
     pcall(function()
         for _, s in ipairs(CoreGui:GetDescendants()) do
@@ -261,7 +261,7 @@ if s and r then
 
     -- ===== Popup 确认弹窗 =====
     WindUI:Popup({
-        Title = "机场安全透视 v8.0",
+        Title = "机场安全透视 v8.0.1",
         Icon = "info",
         Content = "👁 透视高亮 - Highlight穿墙显示所有NPC\n🔍 自动识别 - 区分好人(绿)与坏人(红)\n🏷 头顶标签 - 显示类型/距离/血量\n🔧 自定义快捷键 - 自由绑定按键\n📱 手机适配 - 支持触屏操作\n\n⚠️ 加载后所有功能默认关闭，需手动开启",
         Buttons = {
@@ -316,13 +316,14 @@ if s and r then
             end
         end)
 
-        -- ===== 快捷键监听 =====
+        -- ===== 快捷键监听（核心修复：Keybind回调返回string，用.Name比较） =====
         UserInputService.InputBegan:Connect(function(input, gameProcessed)
             if gameProcessed then return end
             if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
-            local key = input.KeyCode
+            local keyName = input.KeyCode.Name  -- 转成字符串如 "G"
 
-            if Keybinds.ESP and key == Keybinds.ESP then
+            -- 透视开关快捷键
+            if Keybinds.ESP and Keybinds.ESP ~= "" and keyName == Keybinds.ESP then
                 Settings.Enabled = not Settings.Enabled
                 pcall(function()
                     if Controls.ESPToggle then Controls.ESPToggle:Set(Settings.Enabled) end
@@ -332,7 +333,8 @@ if s and r then
                 return
             end
 
-            if Keybinds.BadOnly and key == Keybinds.BadOnly then
+            -- 仅坏人模式快捷键
+            if Keybinds.BadOnly and Keybinds.BadOnly ~= "" and keyName == Keybinds.BadOnly then
                 Settings.BadOnly = not Settings.BadOnly
                 pcall(function()
                     if Controls.BadOnlyToggle then Controls.BadOnlyToggle:Set(Settings.BadOnly) end
@@ -348,7 +350,6 @@ if s and r then
         if WindowRef then return end
 
         local ok, win = pcall(function()
-            -- WindUI官方文档: 使用 CreateWindow 不是 Window
             return WindUI:CreateWindow({
                 Title = "机场安全透视",
                 Author = "b站英吉利超入_",
@@ -363,7 +364,7 @@ if s and r then
             })
         end)
         if not ok or not win then
-            print("[机场安全透视] 窗口创建失败，错误:", ok)
+            print("[机场安全透视] 窗口创建失败:", ok)
             return
         end
         WindowRef = win
@@ -437,7 +438,7 @@ if s and r then
 
         -- ===== 关于 =====
         local aboutTab = win:Tab({Title="关于", Icon="info"})
-        aboutTab:Paragraph({Title="机场安全透视 v8.0", Desc="用于分辨好人与坏人的透视脚本"})
+        aboutTab:Paragraph({Title="机场安全透视 v8.0.1", Desc="用于分辨好人与坏人的透视脚本"})
         aboutTab:Divider()
         aboutTab:Paragraph({Title="👤 作者", Desc="b站英吉利超入_"})
         aboutTab:Divider()
@@ -491,7 +492,7 @@ if s and r then
         end
     end
 
-    print("[机场安全透视] v8.0 已加载 | 作者: b站英吉利超入_")
+    print("[机场安全透视] v8.0.1 已加载 | 作者: b站英吉利超入_")
 else
     -- ===== WindUI 加载失败，原生模式 =====
     print("[机场安全透视] WindUI 加载失败，使用原生模式")
