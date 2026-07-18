@@ -20,7 +20,10 @@ local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 local LocalPlayer = Players.LocalPlayer
 
--- ===== 创建窗口 =====
+-- ===== 判断平台 =====
+local IsMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+
+-- ===== 创建窗口（全面适配手机） =====
 local Window = WindUI:CreateWindow({
 	Title = "机场安全透视",
 	Author = "Airport Security",
@@ -28,16 +31,30 @@ local Window = WindUI:CreateWindow({
 	Icon = "solar:shield-warning-bold",
 	Theme = "Dark",
 	Size = UDim2.fromOffset(650, 480),
-	MinSize = Vector2.new(560, 350),
+	MinSize = Vector2.new(IsMobile and 380 or 560, 350),
 	MaxSize = Vector2.new(850, 560),
-	ToggleKey = Enum.KeyCode.RightShift,
+	ToggleKey = IsMobile and nil or Enum.KeyCode.RightShift,  -- 手机不用键盘Toggle
 	Resizable = true,
 	NewElements = true,
 	HideSearchBar = false,
-	SideBarWidth = 200,
+	SideBarWidth = IsMobile and 160 or 200,  -- 手机侧边栏窄一点
 	Topbar = {
-		Height = 44,
+		Height = IsMobile and 38 or 44,  -- 手机顶栏矮一点
 		ButtonsType = "Mac",
+	},
+	-- 悬浮按钮（手机必备！）
+	OpenButton = {
+		Title = "打开透视",
+		CornerRadius = UDim.new(1, 0),
+		StrokeThickness = 3,
+		Enabled = true,
+		Draggable = true,
+		OnlyMobile = false,  -- 电脑也显示，方便点
+		Scale = IsMobile and 0.45 or 0.5,
+		Color = ColorSequence.new(
+			Color3.fromHex("#30FF6A"),
+			Color3.fromHex("#00D4FF")
+		),
 	},
 })
 
@@ -148,7 +165,7 @@ MainTab:Slider({
 	},
 	IsTooltip = true,
 	IsTextbox = false,
-	Width = 200,
+	Width = IsMobile and 150 or 200,
 	Callback = function(value)
 		Settings.MaxDistance = value
 	end,
@@ -160,7 +177,6 @@ local StatsTab = Window:Tab({
 	Icon = "solar:chart-2-bold",
 })
 
--- 使用 Input Locked 方式显示统计数据
 local StatsGroup = StatsTab:Group({})
 
 local GoodInput = StatsGroup:Input({
@@ -196,7 +212,7 @@ AboutTab:Section({
 
 AboutTab:Section({
 	Title = "基于 WindUI 库构建 | 自动区分好人与坏人",
-	TextSize = 16,
+	TextSize = IsMobile and 14 or 16,
 	TextTransparency = 0.3,
 })
 
@@ -204,7 +220,10 @@ AboutTab:Space()
 
 AboutTab:Paragraph({
 	Title = "使用说明",
-	Desc = "本脚本自动扫描Workspace中的NPC角色，通过名字/路径检测自动区分好人与坏人。\n\nRightShift = 菜单开关\nF4 = 透视开关",
+	Desc = "本脚本自动扫描 角色，通过名字/路径检测自动区分好人与坏人。\n\n"
+		.. (IsMobile
+		and "📱 手机端: 点击悬浮按钮打开菜单，使用Toggle开关控制"
+		or "💻 PC端: RightShift = 菜单开关 | F4 = 透视开关"),
 })
 
 AboutTab:Space()
@@ -400,10 +419,10 @@ local function updateESP()
 		end
 	end
 
-	-- 更新统计UI（使用 :Set() 方法）
-	if GoodInput then GoodInput:Set(tostring(goodCount)) end
-	if BadInput then BadInput:Set(tostring(badCount)) end
-	if TotalInput then TotalInput:Set(tostring(goodCount + badCount)) end
+	-- 更新统计UI
+	if GoodInput then pcall(function() GoodInput:Set(tostring(goodCount)) end) end
+	if BadInput then pcall(function() BadInput:Set(tostring(badCount)) end) end
+	if TotalInput then pcall(function() TotalInput:Set(tostring(goodCount + badCount)) end) end
 end
 
 -- ===== 主循环 =====
@@ -420,25 +439,29 @@ Players.PlayerRemoving:Connect(function()
 	end
 end)
 
--- ===== 启动通知 =====
+-- ===== 启动通知（手机版提示） =====
 WindUI:Notify({
 	Title = "🛡️ 机场安全透视已加载",
-	Content = "按 RightShift 开关菜单 | F4 切换透视",
+	Content = IsMobile
+		and "点击悬浮按钮打开菜单"
+		or "按 RightShift 开关菜单 | F4 切换透视",
 	Icon = "solar:shield-warning-bold",
 	Duration = 5,
 })
 
--- ===== F4 热键 =====
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-	if gameProcessed then return end
-	if input.KeyCode == Enum.KeyCode.F4 then
-		Settings.Enabled = not Settings.Enabled
-		for char, esp in pairs(ESPObjects) do
-			if esp.Box then esp.Box.Visible = Settings.Enabled end
-			if esp.Billboard then esp.Billboard.Enabled = Settings.Enabled end
+-- ===== F4 热键（仅PC） =====
+if not IsMobile then
+	UserInputService.InputBegan:Connect(function(input, gameProcessed)
+		if gameProcessed then return end
+		if input.KeyCode == Enum.KeyCode.F4 then
+			Settings.Enabled = not Settings.Enabled
+			for char, esp in pairs(ESPObjects) do
+				if esp.Box then esp.Box.Visible = Settings.Enabled end
+				if esp.Billboard then esp.Billboard.Enabled = Settings.Enabled end
+			end
 		end
-	end
-end)
+	end)
+end
 
 print("🛡️ 机场安全透视脚本已加载! (WindUI)")
-print("RightShift = 菜单 | F4 = 透视开关")
+print(IsMobile and "📱 手机模式: 点击悬浮按钮打开" or "💻 PC模式: RightShift = 菜单 | F4 = 透视开关")
