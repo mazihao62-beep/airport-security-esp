@@ -1,7 +1,8 @@
 --[[
-    机场安全透视脚本 v11.0
+    机场安全透视脚本 v11.1
     作者: b站英吉利超入_
     功能: ESP透视 + 好人/坏人识别 + 主题系统 + 粒子背景 + 增强毛玻璃
+    更新: 粒子系统采用v1.1方案(范围约束+缓慢反弹+主题色适配)
 ]]
 
 -- ========== 服务 ==========
@@ -18,6 +19,26 @@ pcall(function() IsMobile = UserInputService.TouchEnabled and not UserInputServi
 local Settings = {
     Enabled = false, BadOnly = false, ShowDistance = false, ShowHealth = false,
     MaxRange = 500, Particles = true, CurrentTheme = "Dark",
+}
+
+-- ========== 主题色映射（与WindUI内置16主题对应）==========
+local ThemeColors = {
+    Dark = Color3.fromRGB(100, 180, 255),
+    Light = Color3.fromRGB(80, 140, 200),
+    Rose = Color3.fromRGB(255, 120, 160),
+    Plant = Color3.fromRGB(100, 200, 120),
+    Ocean = Color3.fromRGB(80, 180, 230),
+    Sunset = Color3.fromRGB(255, 150, 80),
+    Midnight = Color3.fromRGB(120, 100, 220),
+    Forest = Color3.fromRGB(80, 170, 80),
+    Lavender = Color3.fromRGB(180, 130, 255),
+    Coral = Color3.fromRGB(255, 130, 100),
+    Mint = Color3.fromRGB(100, 220, 180),
+    Peanut = Color3.fromRGB(200, 170, 100),
+    Sky = Color3.fromRGB(130, 180, 255),
+    Blood = Color3.fromRGB(220, 80, 80),
+    Lemon = Color3.fromRGB(220, 200, 80),
+    Cyber = Color3.fromRGB(0, 220, 200),
 }
 
 local ESPObjects = {}
@@ -41,47 +62,40 @@ local function debugPrint(msg)
     print("[ESP调试] " .. msg)
 end
 
--- ========== 粒子背景系统 ==========
+-- ========== 粒子背景系统（v1.1方案）==========
+local function getParticleColor()
+    local themeName = Settings.CurrentTheme or "Dark"
+    if ThemeColors[themeName] then return ThemeColors[themeName] end
+    return Color3.fromRGB(100, 180, 255)
+end
+
 local function createParticles()
-    if ParticleGui then
-        pcall(function() ParticleGui:Destroy() end)
-        ParticleGui = nil
-    end
+    if ParticleGui then pcall(function() ParticleGui:Destroy() end); ParticleGui = nil end
     if not Settings.Particles then return end
 
     pcall(function()
         ParticleGui = Instance.new("ScreenGui")
         ParticleGui.Name = "AirportESP_Particles"
-        ParticleGui.ResetOnSpawn = false
-        ParticleGui.DisplayOrder = -999
-        ParticleGui.IgnoreGuiInset = true
-        ParticleGui.Parent = CoreGui
+        ParticleGui.ResetOnSpawn = false; ParticleGui.DisplayOrder = -999
+        ParticleGui.IgnoreGuiInset = true; ParticleGui.Parent = CoreGui
 
-        local numParticles = 35
-        local particles = {}
+        local numParticles = 25; local particles = {}
+        local particleColor = getParticleColor()
 
-        -- 创建一条全局渐变轨道线，所有粒子共享
         for i = 1, numParticles do
             local dot = Instance.new("Frame")
-            dot.Size = UDim2.new(0, math.random(2, 5), 0, math.random(2, 5))
-            dot.Position = UDim2.new(math.random(), 0, math.random(), 0)
-            dot.BackgroundColor3 = Color3.fromRGB(100, 180, 255)
-            dot.BackgroundTransparency = math.random(30, 70) / 100
-            dot.BorderSizePixel = 0
-            dot.Parent = ParticleGui
+            local size = math.random(2, 4)
+            dot.Size = UDim2.new(0, size, 0, size)
+            dot.Position = UDim2.new(0.08 + math.random() * 0.84, 0, 0.08 + math.random() * 0.84, 0)
+            dot.BackgroundColor3 = particleColor
+            dot.BackgroundTransparency = 0.4 + math.random() * 0.4
+            dot.BorderSizePixel = 0; dot.Parent = ParticleGui
+            local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 10); c.Parent = dot
 
-            local c = Instance.new("UICorner")
-            c.CornerRadius = UDim.new(0, 10)
-            c.Parent = dot
-
+            local angle = math.random() * 6.28; local speed = 0.0005 + math.random() * 0.0015
             table.insert(particles, {
-                Frame = dot,
-                SpeedX = (math.random() - 0.5) * 0.015,
-                SpeedY = (math.random() - 0.5) * 0.015,
-                DriftX = (math.random() - 0.5) * 0.002,
-                DriftY = (math.random() - 0.5) * 0.002,
-                Phase = math.random() * 6.28,
-                SizeBase = math.random(2, 5),
+                Frame = dot, Vx = math.cos(angle) * speed, Vy = math.sin(angle) * speed,
+                Phase = math.random() * 6.28, SizeBase = size, MinBound = 0.06, MaxBound = 0.94,
             })
         end
 
@@ -93,18 +107,16 @@ local function createParticles()
                 pcall(function()
                     for _, p in ipairs(particles) do
                         if not p.Frame or not p.Frame.Parent then continue end
-                        local x = p.Frame.Position.X.Scale + p.SpeedX + math.sin(time + p.Phase) * p.DriftX
-                        local y = p.Frame.Position.Y.Scale + p.SpeedY + math.cos(time + p.Phase) * p.DriftY
-                        if x > 1 then x = -0.05 end
-                        if x < -0.05 then x = 1 end
-                        if y > 1 then y = -0.05 end
-                        if y < -0.05 then y = 1 end
+                        local x = p.Frame.Position.X.Scale + p.Vx
+                        local y = p.Frame.Position.Y.Scale + p.Vy
+                        if x > p.MaxBound then x = p.MaxBound; p.Vx = -p.Vx + (math.random()-0.5)*0.0002
+                        elseif x < p.MinBound then x = p.MinBound; p.Vx = -p.Vx + (math.random()-0.5)*0.0002 end
+                        if y > p.MaxBound then y = p.MaxBound; p.Vy = -p.Vy + (math.random()-0.5)*0.0002
+                        elseif y < p.MinBound then y = p.MinBound; p.Vy = -p.Vy + (math.random()-0.5)*0.0002 end
                         p.Frame.Position = UDim2.new(x, 0, y, 0)
-                        -- 呼吸效果
-                        local breathe = 0.5 + math.sin(time * 1.5 + p.Phase) * 0.3
-                        p.Frame.BackgroundTransparency = breathe
-                        local sizeBase = p.SizeBase
-                        p.Frame.Size = UDim2.new(0, sizeBase + math.sin(time + p.Phase) * 1.5, 0, sizeBase + math.sin(time + p.Phase) * 1.5)
+                        p.Frame.BackgroundTransparency = 0.4 + math.sin(time * 0.8 + p.Phase) * 0.25
+                        local s = math.max(1, p.SizeBase + math.sin(time + p.Phase) * 0.8)
+                        p.Frame.Size = UDim2.new(0, s, 0, s)
                     end
                 end)
                 task.wait(0.03)
@@ -113,12 +125,19 @@ local function createParticles()
     end)
 end
 
+local function updateParticleColor()
+    local color = getParticleColor()
+    if not ParticleGui then return end
+    pcall(function()
+        for _, child in ipairs(ParticleGui:GetChildren()) do
+            if child:IsA("Frame") then child.BackgroundColor3 = color end
+        end
+    end)
+end
+
 local function destroyParticles()
     ParticleRunning = false
-    if ParticleGui then
-        pcall(function() ParticleGui:Destroy() end)
-        ParticleGui = nil
-    end
+    if ParticleGui then pcall(function() ParticleGui:Destroy() end); ParticleGui = nil end
 end
 
 -- ========== NPC 分类器 ==========
@@ -211,15 +230,10 @@ local function classifyNPC(character, humanoid)
             partColors[cname] = (partColors[cname] or 0) + 1
         end
     end
-    local goodColorCount = 0
-    local badColorCount = 0
+    local goodColorCount = 0; local badColorCount = 0
     for c, n in pairs(partColors) do
-        if c:lower():find("blue") or c:lower():find("green") or c:find("White") then
-            goodColorCount = goodColorCount + n
-        end
-        if c:lower():find("red") or c:lower():find("black") or c:lower():find("brown") or c:lower():find("grey") then
-            badColorCount = badColorCount + n
-        end
+        if c:lower():find("blue") or c:lower():find("green") or c:find("White") then goodColorCount = goodColorCount + n end
+        if c:lower():find("red") or c:lower():find("black") or c:lower():find("brown") or c:lower():find("grey") then badColorCount = badColorCount + n end
     end
     if goodColorCount > badColorCount and goodColorCount >= 3 then
         debugPrint(string.format("  → 颜色判断: 好人(蓝绿%d > 红黑%d)", goodColorCount, badColorCount))
@@ -427,9 +441,9 @@ if s and r then
 
     -- Popup
     WindUI:Popup({
-        Title = "机场安全透视 v11.0",
+        Title = "机场安全透视 v11.1",
         Icon = "solar:info-square-bold",
-        Content = "👁 透视高亮 - Highlight穿墙显示所有NPC\n🔍 智能识别 - 多维度区分好人(绿)与坏人(红)\n🏷 头顶标签 - 显示类型/距离/血量\n🔧 自定义快捷键 - 自由绑定按键\n💾 配置保存 - 自动保存/读取设置\n🎨 主题系统 - 16种内置主题 + 自定义调色\n✨ 粒子背景 - 动态浮动粒子\n🌀 增强毛玻璃 - Acrylic+透明叠加\n\n⚠️ 加载后所有功能默认关闭，需手动开启",
+        Content = "👁 透视高亮 - Highlight穿墙显示所有NPC\n🔍 智能识别 - 多维度区分好人(绿)与坏人(红)\n🏷 头顶标签 - 显示类型/距离/血量\n🔧 自定义快捷键 - 自由绑定按键\n💾 配置保存 - 自动保存/读取设置\n🎨 主题系统 - 16种内置主题 + 自定义调色\n✨ 粒子背景 - 动态浮动粒子(范围约束+主题色)\n🌀 增强毛玻璃 - Acrylic+透明叠加\n\n⚠️ 加载后所有功能默认关闭，需手动开启",
         Buttons = {
             { Title = "取消", Callback = function() end, Variant = "Tertiary" },
             { Title = "确认加载", Icon = "solar:arrow-right-bold", Callback = function()
@@ -515,7 +529,6 @@ if s and r then
     function createWindow()
         if WindowRef then return end
 
-        -- 更强毛玻璃：Acrylic + Transparent 同时启用
         local ok, win = pcall(function()
             return WindUI:CreateWindow({
                 Title = "机场安全透视",
@@ -526,7 +539,6 @@ if s and r then
                 Folder = "airport-esp",
                 Acrylic = true,
                 Transparent = true,
-                -- 透明值调高让毛玻璃更明显
                 Resizable = false,
                 SideBarWidth = 180,
                 ScrollBarEnabled = true,
@@ -539,7 +551,6 @@ if s and r then
         end
         WindowRef = win
 
-        -- 设置更强的透明度让毛玻璃更明显
         pcall(function() WindUI.TransparencyValue = 0.22 end)
 
         -- ===== 主控面板 =====
@@ -623,9 +634,7 @@ if s and r then
         uiTab:Divider()
 
         -- ===== 主题系统 =====
-        uiTab:Paragraph({Title="🎨 主题系统", Desc="16种内置主题，自由切换"})
-
-        -- 获取所有主题
+        uiTab:Paragraph({Title="🎨 主题系统", Desc="16种内置主题，切换时粒子颜色自动适配"})
         local allThemes = {}
         pcall(function() allThemes = WindUI:GetThemes() end)
         local themeNames = {}
@@ -643,11 +652,12 @@ if s and r then
                 if selected then
                     Settings.CurrentTheme = selected
                     pcall(function() WindUI:SetTheme(selected) end)
+                    updateParticleColor()
                 end
             end
         })
         uiTab:Divider()
-        uiTab:Paragraph({Title="💡 提示", Desc="粒子背景 + 毛玻璃 + 透明背景叠加效果最佳"})
+        uiTab:Paragraph({Title="💡 提示", Desc="粒子背景 + 毛玻璃 + 透明背景叠加效果最佳\n粒子仅在有内容的区域飘浮，不会飘出窗口外"})
 
         -- ===== 信息统计 =====
         local statsTab = win:Tab({Title="信息统计", Icon="solar:chart-bold"})
@@ -748,13 +758,12 @@ if s and r then
                     if config then print("[机场安全透视] 自动加载配置: default") end
                 end
             end)
-            -- 启动粒子背景
             createParticles()
         end)
 
         -- ===== 关于 =====
         local aboutTab = win:Tab({Title="关于", Icon="solar:info-square-bold"})
-        aboutTab:Paragraph({Title="机场安全透视 v11.0", Desc="用于分辨好人与坏人的透视脚本"})
+        aboutTab:Paragraph({Title="机场安全透视 v11.1", Desc="用于分辨好人与坏人的透视脚本"})
         aboutTab:Divider()
         aboutTab:Paragraph({Title="👤 作者", Desc="b站英吉利超入_"})
         aboutTab:Divider()
@@ -804,7 +813,7 @@ if s and r then
         end
     end
 
-    print("[机场安全透视] v11.0 已加载 | 作者: b站英吉利超入_")
+    print("[机场安全透视] v11.1 已加载 | 作者: b站英吉利超入_")
 else
     -- WindUI 加载失败，原生模式
     print("[机场安全透视] WindUI 加载失败，使用原生模式")
