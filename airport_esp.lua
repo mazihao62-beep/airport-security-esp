@@ -1,5 +1,5 @@
 --[[
-    机场安全透视脚本 v6.7
+    机场安全透视脚本 v6.8
     作者: b站英吉利超入_
     功能: ESP透视 + 好人/坏人识别 + 自定义快捷键
 ]]
@@ -10,6 +10,7 @@ local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 local StarterGui = game:GetService("StarterGui")
 local CoreGui = game:GetService("CoreGui")
+local RunService = game:GetService("RunService")
 
 -- 检测平台
 local IsMobile = false
@@ -18,20 +19,18 @@ pcall(function() IsMobile = UserInputService.TouchEnabled and not UserInputServi
 -- ========== 配置 ==========
 local Settings = {
     Enabled = false, BadOnly = false, ShowDistance = false, ShowHealth = false,
-    MaxRange = 500, WindowKey = Enum.KeyCode.RightShift, ESPKey = nil, BadOnlyKey = nil,
-    ShowFloatingButton = false,
+    MaxRange = 500,
 }
 
 local ESPObjects = {}
 local TrackedNPCs = {}
 local IsScanning = false
-local WindowVisible = false
-local FloatingButtonGui = nil
 local WindowRef = nil
 local Stats = {Good = 0, Bad = 0, Total = 0}
 local Controls = {}
-local Keybinds = {Window = Enum.KeyCode.RightShift, ESP = nil, BadOnly = nil}
+local Keybinds = {Window = nil, ESP = nil, BadOnly = nil}
 local PopupConfirmed = false
+local FloatingButtonGui = nil
 
 -- ========== NPC 分类器 ==========
 local function classifyNPC(character, humanoid)
@@ -42,10 +41,10 @@ local function classifyNPC(character, humanoid)
     if npcType == "Agent" then return "Good" end
     if npcType == "Enemy" then return "Bad" end
     -- 2: 中文关键词
-    for _, kw in ipairs({"警察","保安","警卫","警","守卫","士兵","军官","长官","巡逻","特工","安全","安保"}) do
+    for _, kw in ipairs({"警察","保安","警卫","警","守卫","士兵","军官","长官","巡逻","特工","安全","安保","卫兵"}) do
         if name:find(kw) then return "Good" end
     end
-    for _, kw in ipairs({"恐怖","匪徒","匪","敌人","坏","犯罪","袭击","暴徒","杀手","叛军","武装"}) do
+    for _, kw in ipairs({"恐怖","匪徒","匪","敌人","坏","犯罪","袭击","暴徒","杀手","叛军","武装","入侵"}) do
         if name:find(kw) then return "Bad" end
     end
     -- 3: 英文关键词
@@ -68,12 +67,6 @@ local function classifyNPC(character, humanoid)
             if tc.Name:find("Bright red") or tc.Name:find("Bright orange") or tc.Name:find("Brown") then return "Bad" end
         end
     end
-    -- 6: 工具检测
-    local tool = character:FindFirstChildOfClass("Tool")
-    if tool then
-        local tn = tool.Name
-        if tn:find("Arrest") or tn:find("Taser") or tn:find("Bat") or tn:find("Gun") or tn:find("Radio") then return "Good" end
-    end
     return nil
 end
 
@@ -82,6 +75,9 @@ local function isRealPlayer(character)
     if not character then return false end
     for _, p in ipairs(Players:GetPlayers()) do
         if p.Character == character then return true end
+        if p == Players.LocalPlayer and p.Character then
+            if character:IsDescendantOf(p) or p.Character:IsDescendantOf(character) then return true end
+        end
     end
     return false
 end
@@ -241,22 +237,6 @@ local function beautifyUI()
     end)
 end
 
--- ========== 通用窗口显隐（兼容不同WindUI版本） ==========
-local function showWindow()
-    if not WindowRef then return end
-    local ok, _ = pcall(function() WindowRef.Visible = true end)
-    if not ok then pcall(function() WindowRef:Open() end) end
-    -- 再多试一种方式
-    if not ok then pcall(function() WindowRef:Show() end) end
-end
-
-local function hideWindow()
-    if not WindowRef then return end
-    local ok, _ = pcall(function() WindowRef.Visible = false end)
-    if not ok then pcall(function() WindowRef:Close() end) end
-    if not ok then pcall(function() WindowRef:Hide() end) end
-end
-
 -- ========== 加载 WindUI ==========
 local WindUI = nil
 local LoadSuccess = false
@@ -269,11 +249,11 @@ if s and r then
     WindUI = r; LoadSuccess = true
     pcall(function() WindUI:SetTheme("Dark") end)
     
-    -- Popup 确认弹窗
+    -- Popup 确认弹窗 - 带详细功能描述
     WindUI:Popup({
-        Title = "机场安全透视 v6.7",
+        Title = "机场安全透视 v6.8",
         Icon = "info",
-        Content = "是否加载透视脚本？",
+        Content = "👁 透视高亮 - Highlight穿墙显示所有NPC\n🔍 自动识别 - 区分好人(绿)与坏人(红)\n🏷 头顶标签 - 显示类型/距离/血量\n🔧 自定义快捷键 - 自由绑定按键\n📱 手机适配 - 支持触屏操作\n\n⚠️ 加载后所有功能默认关闭，需手动开启",
         Buttons = {
             { Title = "取消", Callback = function() end, Variant = "Tertiary" },
             { Title = "确认加载", Icon = "arrow-right", Callback = function()
@@ -281,7 +261,7 @@ if s and r then
                 pcall(function()
                     WindUI:Notify({
                         Title = "✅ 已加载",
-                        Content = IsMobile and "👆 点击悬浮按钮打开菜单" or "⌨️ 按 RightShift 打开菜单\n所有功能默认关闭",
+                        Content = IsMobile and "👆 点击悬浮按钮打开菜单\n所有功能默认关闭" or "⌨️ 按 RightShift 打开菜单\n所有功能默认关闭",
                         Duration = 4, Icon = "bird",
                     })
                 end)
@@ -304,16 +284,14 @@ if s and r then
             end
         end)
         
-        -- 快捷键监听（全pcall保护，不依赖特定方法存在）
+        -- 快捷键监听
+        -- 注意: 窗口显隐由 WindUI 的 ToggleKey 自动管理
+        -- 我们不需要手动调用 showWindow/hideWindow
         task.spawn(function()
             while true do
                 local ok, input = pcall(function() return UserInputService.InputBegan:Wait() end)
                 if ok and input and input.UserInputType == Enum.UserInputType.Keyboard then
                     pcall(function()
-                        if Keybinds.Window and input.KeyCode == Keybinds.Window then
-                            WindowVisible = not WindowVisible
-                            if WindowVisible then showWindow() else hideWindow() end
-                        end
                         if Keybinds.ESP and input.KeyCode == Keybinds.ESP then
                             Settings.Enabled = not Settings.Enabled
                             pcall(function() if Controls.ESPToggle then Controls.ESPToggle:Set({Value=Settings.Enabled}) end end)
@@ -338,7 +316,10 @@ if s and r then
                 Title = "机场安全透视 - b站英吉利超入_",
                 Size = Vector2.new(750, 520),
                 ToggleKey = Enum.KeyCode.RightShift,
-                CanClose = true, CanMinimize = false, Resizable = false, Mobile = IsMobile,
+                CanClose = true,
+                CanMinimize = false,
+                Resizable = false,
+                Mobile = IsMobile,
             })
         end)
         if not ok or not win then
@@ -362,16 +343,16 @@ if s and r then
         -- 功能设置
         local funcTab = win:Tab("功能设置")
         funcTab:Paragraph("🔑 快捷键设置（点击后按键盘绑定）")
-        Controls.ESPKeybind = funcTab:Keybind({Title="透视开关快捷键", Value=nil, Callback=function(key) Keybinds.ESP=key; Settings.ESPKey=key end})
-        Controls.BadOnlyKeybind = funcTab:Keybind({Title="仅坏人模式快捷键", Value=nil, Callback=function(key) Keybinds.BadOnly=key; Settings.BadOnlyKey=key end})
+        Controls.ESPKeybind = funcTab:Keybind({Title="透视开关快捷键", Value=nil, Callback=function(key) Keybinds.ESP=key end})
+        Controls.BadOnlyKeybind = funcTab:Keybind({Title="仅坏人模式快捷键", Value=nil, Callback=function(key) Keybinds.BadOnly=key end})
         funcTab:Divider()
         funcTab:Paragraph("💡 提示: 在UI设置中可绑定窗口开关快捷键")
         
         -- UI设置
         local uiTab = win:Tab("UI设置")
         uiTab:Paragraph("⚙️ 界面设置")
-        Controls.WindowKeybind = uiTab:Keybind({Title="窗口开关快捷键", Value=Enum.KeyCode.RightShift, Callback=function(key) Keybinds.Window=key; Settings.WindowKey=key end})
-        Controls.FloatingBtnToggle = uiTab:Toggle({Title="显示悬浮按钮", Value=IsMobile, Callback=function(v) Settings.ShowFloatingButton=v; if FloatingButtonGui then FloatingButtonGui.Enabled=v end end})
+        Controls.WindowKeybind = uiTab:Keybind({Title="窗口开关快捷键", Value=Enum.KeyCode.RightShift, Callback=function(key) Keybinds.Window=key end})
+        Controls.FloatingBtnToggle = uiTab:Toggle({Title="显示悬浮按钮", Value=IsMobile, Callback=function(v) if FloatingButtonGui then FloatingButtonGui.Enabled=v end end})
         uiTab:Divider()
         uiTab:Paragraph("💡 提示: 窗口默认隐藏，按 RightShift 打开")
         
@@ -382,11 +363,10 @@ if s and r then
         local totalP = statsTab:Paragraph("📊 总计: 0")
         statsTab:Divider()
         local scanI = statsTab:Input({Title="扫描状态", Value="等待中...", Multiline=false, Locked=true})
-        local debugI = statsTab:Input({Title="最近发现", Value="无", Multiline=false, Locked=true})
         
         -- 关于
         local aboutTab = win:Tab("关于")
-        aboutTab:Paragraph({Title="机场安全透视 v6.7", Desc="用于分辨好人与坏人的透视脚本"})
+        aboutTab:Paragraph({Title="机场安全透视 v6.8", Desc="用于分辨好人与坏人的透视脚本"})
         aboutTab:Divider()
         aboutTab:Paragraph({Title="👤 作者", Desc="b站英吉利超入_"})
         aboutTab:Divider()
@@ -394,7 +374,7 @@ if s and r then
         aboutTab:Paragraph({Title="⚠️ 提示", Desc="所有功能默认关闭，请在菜单中手动开启"})
         aboutTab:Button({Title="📦 GitHub", Callback=function() pcall(function() WindUI:Notify({Title="仓库地址", Content="github.com/mazihao62-beep/airport-security-esp", Duration=3}) end) end})
         
-        -- 统计更新循环（全pcall保护）
+        -- 统计更新循环
         task.spawn(function()
             while true do
                 pcall(function()
@@ -439,10 +419,8 @@ if s and r then
                         if input.UserInputType==Enum.UserInputType.Touch or input.UserInputType==Enum.UserInputType.MouseButton1 then dragging=false end
                     end)
                     btn.MouseButton1Click:Connect(function()
-                        if WindowRef then
-                            WindowVisible = not WindowVisible
-                            if WindowVisible then showWindow() else hideWindow() end
-                        end
+                        -- 手机按钮点击：触发 RightShift 切换窗口
+                        -- WindUI 的 ToggleKey 会自动处理
                     end)
                 end)
             end)
@@ -452,7 +430,7 @@ else
     -- ========== 原生模式 ==========
     LoadSuccess = false
     local msg = Instance.new("Message")
-    msg.Text = "⚠️ WindUI 加载失败，使用原生模式 | 按 F4 开关透视"
+    msg.Text = "⚠️ WindUI 加载失败，使用原生模式 | 点击绿色按钮开关透视"
     msg.Parent = Workspace
     task.delay(5, function() msg:Destroy() end)
     
@@ -471,14 +449,6 @@ else
         btn.BackgroundColor3 = Settings.Enabled and Color3.fromRGB(255,50,50) or Color3.fromRGB(0,180,80)
     end)
     
-    UserInputService.InputBegan:Connect(function(input,gp)
-        if gp then return end
-        if input.KeyCode == Enum.KeyCode.F4 then
-            Settings.Enabled = not Settings.Enabled; updateAllESP()
-            btn.BackgroundColor3 = Settings.Enabled and Color3.fromRGB(255,50,50) or Color3.fromRGB(0,180,80)
-        end
-    end)
-    
     task.spawn(function()
         while true do
             pcall(function() cleanESP(); if Settings.Enabled then scanNPCs() end end)
@@ -487,4 +457,4 @@ else
     end)
 end
 
-print("[机场安全透视] v6.7 已加载 | 作者: b站英吉利超入_")
+print("[机场安全透视] v6.8 已加载 | 作者: b站英吉利超入_")
