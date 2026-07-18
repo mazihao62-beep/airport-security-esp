@@ -1,7 +1,7 @@
 --[[
-    机场安全透视脚本 v8.0.1
+    机场安全透视脚本 v9.0
     作者: b站英吉利超入_
-    功能: ESP透视 + 好人/坏人识别 + 自定义快捷键
+    功能: ESP透视 + 好人/坏人识别 + 配置保存 + 毛玻璃效果
 ]]
 
 -- ========== 服务 ==========
@@ -30,6 +30,7 @@ local Controls = {}
 local Keybinds = {}
 local PopupConfirmed = false
 local TabElements = {}
+local ConfigName = "default"
 
 -- ========== NPC 分类器 ==========
 local function classifyNPC(character, humanoid)
@@ -79,14 +80,8 @@ end
 local function isRealPlayer(character)
     if not character then return false end
     if not character:IsA("Model") then return false end
-    local lp = Players.LocalPlayer
     for _, p in ipairs(Players:GetPlayers()) do
         if p.Character == character then return true end
-    end
-    if lp and lp.Character then
-        local myRoot = lp.Character:FindFirstChild("HumanoidRootPart") or lp.Character:FindFirstChild("Torso")
-        local theirRoot = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Torso")
-        if myRoot and theirRoot and myRoot == theirRoot then return true end
     end
     return false
 end
@@ -225,7 +220,7 @@ local function scanNPCs()
     IsScanning = false
 end
 
--- ========== 美化 UI（白色滚动条） ==========
+-- ========== 美化 UI ==========
 local function beautifyUI()
     pcall(function()
         for _, s in ipairs(CoreGui:GetDescendants()) do
@@ -233,17 +228,6 @@ local function beautifyUI()
                 s.ScrollBarThickness = 14
                 s.ScrollBarImageColor3 = Color3.fromRGB(220, 220, 220)
                 s.ScrollBarImageTransparency = 0.1
-            end
-        end
-    end)
-    pcall(function()
-        for _, o in ipairs(CoreGui:GetDescendants()) do
-            if (o:IsA("ImageLabel") or o:IsA("ImageButton")) and o.Size.X.Offset <= 30 and o.Size.X.Offset > 0 then
-                local p = o.Parent
-                if p and p:IsA("Frame") then
-                    o.ImageColor3 = Color3.fromRGB(255, 255, 255)
-                    o.ImageTransparency = 0.1
-                end
             end
         end
     end)
@@ -261,18 +245,18 @@ if s and r then
 
     -- ===== Popup 确认弹窗 =====
     WindUI:Popup({
-        Title = "机场安全透视 v8.0.1",
-        Icon = "info",
-        Content = "👁 透视高亮 - Highlight穿墙显示所有NPC\n🔍 自动识别 - 区分好人(绿)与坏人(红)\n🏷 头顶标签 - 显示类型/距离/血量\n🔧 自定义快捷键 - 自由绑定按键\n📱 手机适配 - 支持触屏操作\n\n⚠️ 加载后所有功能默认关闭，需手动开启",
+        Title = "机场安全透视 v9.0",
+        Icon = "solar:info-square-bold",
+        Content = "👁 透视高亮 - Highlight穿墙显示所有NPC\n🔍 自动识别 - 区分好人(绿)与坏人(红)\n🏷 头顶标签 - 显示类型/距离/血量\n🔧 自定义快捷键 - 自由绑定按键\n💾 配置保存 - 自动保存/读取设置\n✨ 毛玻璃效果 - 支持透明/Acrylic\n\n⚠️ 加载后所有功能默认关闭，需手动开启",
         Buttons = {
             { Title = "取消", Callback = function() end, Variant = "Tertiary" },
-            { Title = "确认加载", Icon = "arrow-right", Callback = function()
+            { Title = "确认加载", Icon = "solar:arrow-right-bold", Callback = function()
                 PopupConfirmed = true
                 pcall(function()
                     WindUI:Notify({
                         Title = "✅ 已加载",
-                        Content = IsMobile and "👆 点击悬浮按钮打开菜单\n所有功能默认关闭" or "⌨️ 按 RightShift 打开菜单\n所有功能默认关闭",
-                        Duration = 4, Icon = "bird",
+                        Content = "⌨️ 按 RightShift 打开菜单\n所有功能默认关闭",
+                        Duration = 4, Icon = "solar:bell-bold",
                     })
                 end)
                 task.spawn(function()
@@ -290,7 +274,6 @@ if s and r then
         task.wait(1.5)
         beautifyUI()
 
-        -- 主扫描循环
         task.spawn(function()
             while true do
                 pcall(function() cleanESP(); scanNPCs() end)
@@ -298,7 +281,6 @@ if s and r then
             end
         end)
 
-        -- 统计UI更新循环
         task.spawn(function()
             while true do
                 pcall(function()
@@ -316,13 +298,12 @@ if s and r then
             end
         end)
 
-        -- ===== 快捷键监听（核心修复：Keybind回调返回string，用.Name比较） =====
+        -- ===== 快捷键监听 =====
         UserInputService.InputBegan:Connect(function(input, gameProcessed)
             if gameProcessed then return end
             if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
-            local keyName = input.KeyCode.Name  -- 转成字符串如 "G"
+            local keyName = input.KeyCode.Name
 
-            -- 透视开关快捷键
             if Keybinds.ESP and Keybinds.ESP ~= "" and keyName == Keybinds.ESP then
                 Settings.Enabled = not Settings.Enabled
                 pcall(function()
@@ -333,7 +314,6 @@ if s and r then
                 return
             end
 
-            -- 仅坏人模式快捷键
             if Keybinds.BadOnly and Keybinds.BadOnly ~= "" and keyName == Keybinds.BadOnly then
                 Settings.BadOnly = not Settings.BadOnly
                 pcall(function()
@@ -353,10 +333,11 @@ if s and r then
             return WindUI:CreateWindow({
                 Title = "机场安全透视",
                 Author = "b站英吉利超入_",
-                Icon = "shield",
+                Icon = "solar:shield-warning-bold",
                 Size = UDim2.fromOffset(750, 520),
                 ToggleKey = Enum.KeyCode.RightShift,
-                Theme = "Dark",
+                Folder = "airport-esp",  -- 配置保存必需
+                Acrylic = true,          -- 毛玻璃效果
                 Resizable = false,
                 SideBarWidth = 180,
                 ScrollBarEnabled = true,
@@ -370,42 +351,51 @@ if s and r then
         WindowRef = win
 
         -- ===== 主控面板 =====
-        local mainTab = win:Tab({Title="主控面板", Icon="sliders"})
+        local mainTab = win:Tab({Title="主控面板", Icon="solar:slider-vertical-bold"})
         mainTab:Paragraph({Title="👁 透视控制"})
         Controls.ESPToggle = mainTab:Toggle({
+            Flag = "ESPToggle",
             Title = "透视开关", Value = false,
             Callback = function(v) Settings.Enabled = v; updateAllESP(); if v then task.spawn(scanNPCs) end end
         })
         Controls.BadOnlyToggle = mainTab:Toggle({
+            Flag = "BadOnlyToggle",
             Title = "仅显示坏人", Value = false,
             Callback = function(v) Settings.BadOnly = v; updateAllESP() end
         })
         mainTab:Divider()
         mainTab:Paragraph({Title="📐 显示设置"})
         Controls.DistanceToggle = mainTab:Toggle({
+            Flag = "DistanceToggle",
             Title = "显示距离", Value = false,
             Callback = function(v) Settings.ShowDistance = v end
         })
         Controls.HealthToggle = mainTab:Toggle({
+            Flag = "HealthToggle",
             Title = "显示血量", Value = false,
             Callback = function(v) Settings.ShowHealth = v end
         })
         mainTab:Divider()
         Controls.RangeSlider = mainTab:Slider({
+            Flag = "RangeSlider",
             Title = "最大探测距离",
             Step = 50,
             Value = { Min = 50, Max = 1000, Default = 500 },
+            Width = 200,
+            IsTextbox = true,
             Callback = function(v) Settings.MaxRange = v end
         })
 
         -- ===== 功能设置 =====
-        local funcTab = win:Tab({Title="功能设置", Icon="settings"})
+        local funcTab = win:Tab({Title="功能设置", Icon="solar:settings-bold"})
         funcTab:Paragraph({Title="🔑 快捷键设置（点击后按键盘绑定）"})
         Controls.ESPKeybind = funcTab:Keybind({
+            Flag = "ESPKeybind",
             Title = "透视开关快捷键", Value = "",
             Callback = function(key) Keybinds.ESP = key end
         })
         Controls.BadOnlyKeybind = funcTab:Keybind({
+            Flag = "BadOnlyKeybind",
             Title = "仅坏人模式快捷键", Value = "",
             Callback = function(key) Keybinds.BadOnly = key end
         })
@@ -413,21 +403,46 @@ if s and r then
         funcTab:Paragraph({Title="💡 提示", Desc="窗口快捷键在UI设置中绑定（默认 RightShift）"})
 
         -- ===== UI设置 =====
-        local uiTab = win:Tab({Title="UI设置", Icon="monitor"})
+        local uiTab = win:Tab({Title="UI设置", Icon="solar:monitor-bold"})
         uiTab:Paragraph({Title="⚙️ 界面设置"})
         Controls.WindowKeybind = uiTab:Keybind({
+            Flag = "WindowKeybind",
             Title = "窗口开关快捷键", Value = "RightShift",
-            Callback = function(key) Keybinds.Window = key end
+            Callback = function(key)
+                Keybinds.Window = key
+                if WindowRef then pcall(function() WindowRef:SetToggleKey(Enum.KeyCode[key]) end) end
+            end
         })
         Controls.FloatingBtnToggle = uiTab:Toggle({
+            Flag = "FloatingBtnToggle",
             Title = "显示悬浮按钮", Value = IsMobile,
             Callback = function(v) if FloatingButtonGui then FloatingButtonGui.Enabled = v end end
+        })
+        uiTab:Divider()
+        uiTab:Paragraph({Title="✨ 视觉效果"})
+        Controls.AcrylicToggle = uiTab:Toggle({
+            Flag = "AcrylicToggle",
+            Title = "毛玻璃效果 (Acrylic)", Value = true,
+            Callback = function(v)
+                pcall(function()
+                    WindUI:ToggleAcrylic(v)
+                end)
+            end
+        })
+        Controls.TransparencyToggle = uiTab:Toggle({
+            Flag = "TransparencyToggle",
+            Title = "透明背景", Value = false,
+            Callback = function(v)
+                if WindowRef then
+                    pcall(function() WindowRef:ToggleTransparency(v) end)
+                end
+            end
         })
         uiTab:Divider()
         uiTab:Paragraph({Title="💡 提示", Desc="窗口默认隐藏，按 RightShift 打开"})
 
         -- ===== 信息统计 =====
-        local statsTab = win:Tab({Title="信息统计", Icon="bar-chart-3"})
+        local statsTab = win:Tab({Title="信息统计", Icon="solar:chart-bold"})
         TabElements.GoodP = statsTab:Paragraph({Title="🟢 好人: 0"})
         TabElements.BadP = statsTab:Paragraph({Title="🔴 坏人: 0"})
         TabElements.TotalP = statsTab:Paragraph({Title="📊 总计: 0"})
@@ -436,15 +451,149 @@ if s and r then
             Title = "扫描状态", Value = "等待中...", Locked = true
         })
 
+        -- ===== 配置管理 (Config Saving) =====
+        local configTab = win:Tab({Title="配置管理", Icon="solar:diskette-bold"})
+        configTab:Paragraph({Title="💾 配置管理", Desc="保存/加载你的所有设置"})
+
+        local ConfigNameInput = configTab:Input({
+            Flag = "ConfigNameInput",
+            Title = "配置名称",
+            Value = "default",
+            Icon = "solar:file-text-bold",
+            Callback = function(value)
+                ConfigName = value
+            end
+        })
+
+        configTab:Space()
+
+        local ConfigManager = WindowRef.ConfigManager
+        local AllConfigs = {}
+        pcall(function() AllConfigs = ConfigManager:AllConfigs() end)
+        local DefaultValue = nil
+        pcall(function()
+            for _, v in ipairs(AllConfigs) do
+                if v == "default" then DefaultValue = "default"; break end
+            end
+        end)
+
+        local AllConfigsDropdown = configTab:Dropdown({
+            Title = "已有配置",
+            Desc = "选择要加载的配置",
+            Values = AllConfigs,
+            Value = DefaultValue,
+            Callback = function(value)
+                if value then
+                    ConfigName = value
+                    pcall(function() ConfigNameInput:Set(value) end)
+                end
+            end
+        })
+
+        configTab:Space()
+
+        configTab:Button({
+            Title = "💾 保存配置",
+            Icon = "solar:check-circle-bold",
+            Justify = "Center",
+            Color = Color3.fromHex("#305dff"),
+            Callback = function()
+                if not ConfigManager then
+                    pcall(function() WindUI:Notify({Title="错误", Content="配置系统不可用", Duration=3}) end)
+                    return
+                end
+                pcall(function()
+                    local config = ConfigManager:Config(ConfigName)
+                    if config and config:Save() then
+                        WindUI:Notify({
+                            Title = "✅ 配置已保存",
+                            Content = "配置 '" .. ConfigName .. "' 已保存",
+                            Icon = "solar:check-circle-bold", Duration = 3,
+                        })
+                        AllConfigsDropdown:Refresh(ConfigManager:AllConfigs())
+                    end
+                end)
+            end
+        })
+
+        configTab:Space()
+
+        configTab:Button({
+            Title = "📂 加载配置",
+            Icon = "solar:refresh-circle-bold",
+            Justify = "Center",
+            Color = Color3.fromHex("#10C550"),
+            Callback = function()
+                if not ConfigManager then
+                    pcall(function() WindUI:Notify({Title="错误", Content="配置系统不可用", Duration=3}) end)
+                    return
+                end
+                pcall(function()
+                    local config = ConfigManager:CreateConfig(ConfigName, false)
+                    if config and config:Load() then
+                        WindUI:Notify({
+                            Title = "✅ 配置已加载",
+                            Content = "配置 '" .. ConfigName .. "' 已加载",
+                            Icon = "solar:refresh-circle-bold", Duration = 3,
+                        })
+                    end
+                end)
+            end
+        })
+
+        configTab:Space()
+
+        configTab:Button({
+            Title = "🗑️ 删除配置",
+            Icon = "solar:trash-bin-trash-bold",
+            Justify = "Center",
+            Color = Color3.fromHex("#ff3040"),
+            Callback = function()
+                if not ConfigManager then return end
+                pcall(function()
+                    local config = ConfigManager:Config(ConfigName)
+                    if config and config:Delete() then
+                        WindUI:Notify({
+                            Title = "🗑️ 配置已删除",
+                            Content = "配置 '" .. ConfigName .. "' 已删除",
+                            Icon = "solar:trash-bin-trash-bold", Duration = 3,
+                        })
+                        AllConfigsDropdown:Refresh(ConfigManager:AllConfigs())
+                    end
+                end)
+            end
+        })
+
+        configTab:Divider()
+
+        configTab:Paragraph({
+            Title = "💡 提示",
+            Desc = "所有带 Flag 的元素会自动保存/恢复\n包括：透视开关、快捷键、滑块、颜色等"
+        })
+
+        -- ===== 自动加载配置 =====
+        task.spawn(function()
+            task.wait(1)
+            pcall(function()
+                if ConfigManager then
+                    local config = ConfigManager:CreateConfig("default", true)
+                    if config then
+                        print("[机场安全透视] 自动加载配置: default")
+                    end
+                end
+            end)
+        end)
+
         -- ===== 关于 =====
-        local aboutTab = win:Tab({Title="关于", Icon="info"})
-        aboutTab:Paragraph({Title="机场安全透视 v8.0.1", Desc="用于分辨好人与坏人的透视脚本"})
+        local aboutTab = win:Tab({Title="关于", Icon="solar:info-square-bold"})
+        aboutTab:Paragraph({Title="机场安全透视 v9.0", Desc="用于分辨好人与坏人的透视脚本"})
         aboutTab:Divider()
         aboutTab:Paragraph({Title="👤 作者", Desc="b站英吉利超入_"})
         aboutTab:Divider()
         local usage = IsMobile and "手机: 点击悬浮按钮" or "PC: 按 RightShift 打开菜单"
         aboutTab:Paragraph({Title="💡 使用说明", Desc=usage})
         aboutTab:Paragraph({Title="⚠️ 提示", Desc="所有功能默认关闭，请在菜单中手动开启"})
+        aboutTab:Paragraph({Title="✨ 高级功能", Desc="配置保存 | 毛玻璃效果 | Solar图标"})
         aboutTab:Button({
             Title = "📦 GitHub",
             Callback = function()
@@ -492,7 +641,7 @@ if s and r then
         end
     end
 
-    print("[机场安全透视] v8.0.1 已加载 | 作者: b站英吉利超入_")
+    print("[机场安全透视] v9.0 已加载 | 作者: b站英吉利超入_")
 else
     -- ===== WindUI 加载失败，原生模式 =====
     print("[机场安全透视] WindUI 加载失败，使用原生模式")
@@ -524,24 +673,5 @@ else
         end
     end)
 end
-
--- ===== 保底扫描 =====
-task.spawn(function()
-    task.wait(3)
-    if not PopupConfirmed then
-        pcall(function()
-            for _, obj in ipairs(Workspace:GetDescendants()) do
-                if obj:IsA("Humanoid") then
-                    local char = obj.Parent
-                    if char and not isRealPlayer(char) and not TrackedNPCs[char] then
-                        local nt = classifyNPC(char, obj)
-                        if nt then createESP(char, nt) end
-                    end
-                end
-                task.wait()
-            end
-        end)
-    end
-end)
 
 print("[机场安全透视] 脚本加载完成")
