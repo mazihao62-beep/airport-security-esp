@@ -1,6 +1,6 @@
 --[[
-    机场安全透视 v14.14
-    修复: WindUI加载失败(3次重试+超时保护+错误提示)
+    机场安全透视 v14.15
+    修复: local WI重复声明导致makeWindow中WI=nil的关键Bug
     功能: NPC透视+行李箱检测(Highlight+BillboardGui)
     作者: b站英吉利超入_
 ]]
@@ -259,7 +259,7 @@ local function makeWindow()
     ct:Button({Title="🗑️ 删除",Icon="solar:trash-bin-trash-bold",Justify="Center",Color=Color3.fromHex("#ff3040"),Callback=function()if not CM then return end;local c=CM:Config(CF);if c and c:Delete()then WI:Notify({Title="🗑️ 已删除",Content="配置 '"..CF.."'",Duration=3,Icon="solar:trash-bin-trash-bold"});ACD:Refresh(CM:AllConfigs())end end})
     task.spawn(function()task.wait(1);pcall(function()CM:CreateConfig("default",true)end);task.spawn(mkParts)end)
     local at=WN:Tab({Title="关于",Icon="solar:info-square-bold"})
-    at:Paragraph({Title="机场安全透视 v14.14",Desc="修复WindUI加载失败"})
+    at:Paragraph({Title="机场安全透视 v14.15",Desc="修复WI重复声明Bug"})
     at:Divider();at:Paragraph({Title="👤 作者",Desc="b站英吉利超入_"});at:Divider()
     at:Paragraph({Title="💡 使用",Desc=IM and"手机:点击悬浮按钮"or"PC:RightShift打开菜单"})
     U.InputBegan:Connect(function(i,g)if g then return end;if i.UserInputType~=Enum.UserInputType.Keyboard then return end;local k=i.KeyCode.Name
@@ -269,7 +269,8 @@ local function makeWindow()
 end
 
 -- 加载WindUI (3次重试 + 超时保护)
-local WI=nil;local retryCount=0;local maxRetries=3;local loaded=false
+-- 注意: WI已在顶部声明(local WI=nil), 底部不要重复local声明! 否则makeWindow捕获到的是第一个nil
+local retryCount=0;local maxRetries=3;local loaded=false
 while retryCount<maxRetries and not loaded do
     local ok,rv=pcall(function()return loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()end)
     if ok and rv then WI=rv;loaded=true
@@ -277,7 +278,7 @@ while retryCount<maxRetries and not loaded do
 
 if loaded then
     pcall(function()WI:SetTheme("Dark")end);S.PColor=gtc("Dark")
-    WI:Popup({Title="机场安全透视 v14.14",Icon="solar:info-square-bold",
+    WI:Popup({Title="机场安全透视 v14.15",Icon="solar:info-square-bold",
         Content="👁 NPC透视+Highlight高亮\n🔴🟢 红色=坏人/绿色=好人\n🧳 行李箱检测+高亮\n🌀 粒子背景\n⚠️ 功能默认关闭",
         Buttons={{Title="取消",Callback=function()end,Variant="Tertiary"},
             {Title="确认加载",Icon="solar:arrow-right-bold",Callback=function()PP=true
