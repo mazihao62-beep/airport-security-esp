@@ -1,7 +1,7 @@
 --[[
-    机场安全透视 v13.0
+    机场安全透视 v13.1
     功能: NPC透视高亮+头顶标签+好人坏人区分+自定义快捷键+配置保存
-    修复13个Bug: 粒子窗口内/透明/滚动条/悬浮按钮/分类器/清理残留/窗口关闭时自动关闭功能
+    修复Bug: 基于运行时Properties深度扫描分类器
     作者: b站英吉利超入_
 ]]
 local Players=game:GetService("Players");local UIS=game:GetService("UserInputService");local WS=game:GetService("Workspace");local CG=game:GetService("CoreGui");local VIM=game:GetService("VirtualInputManager");local RS=game:GetService("RunService")
@@ -50,28 +50,31 @@ local function upc()local c=gtc(S.CurrentTheme);if not c or #PS==0 then return e
 local function dp2()PR=false;if PH then pcall(function()PH:Disconnect()end);PH=nil end;if PC then pcall(function()PC:Destroy()end);PC=nil end;PS={}end
 local function bu()pcall(function()for _,s in ipairs(CG:GetDescendants())do if s:IsA("ScrollingFrame")then s.ScrollBarThickness=0 end end end)end
 task.spawn(function()while true do task.wait(3);bu()end end)
-
-local AN={"NPCType","Type","Faction","Team","Role","Kind","Affiliation","Alignment","Side"}
-local AG={"agent","good","friendly","ally","police","friend","guard","civilian","security","law","team"}
-local AB={"enemy","bad","hostile","terrorist","criminal","danger","evil","suspect","threat","invader","rogue"}
-local NG={"警察","保安","警卫","警","守卫","士兵","军官","特工","巡逻","安全","安保","护卫","卫兵","公安","武警","police","guard","agent","officer","soldier","patrol","cop","friendly","safety"}
-local NB={"恐怖","匪徒","匪","敌人","坏","犯罪","袭击","暴徒","杀手","叛军","劫匪","歹徒","绑匪","terrorist","enemy","hostile","criminal","danger","suspect","invader","attacker"}
-local PG={"agent","police","friendly","good","blue","safe","civilian","defender","guardian"}
-local PB={"enemy","terror","hostile","criminal","danger","invader","attack","suspect"}
+-- 分类器 v13.1: Properties深度扫描
+local function scanProperties(model)
+    if not model then return nil, nil end
+    local props = model:FindFirstChild("Properties")
+    if not props then return nil, nil end
+    local sv = props:FindFirstChild("StatusVariables")
+    if sv then local hostile = sv:FindFirstChild("Hostile"); if hostile and hostile:IsA("BoolValue") and hostile.Value then return "Hostile", true end end
+    local rv = props:FindFirstChild("RandomVariables")
+    if rv then local contraband = rv:FindFirstChild("ContrabandReal"); if contraband and contraband:IsA("BoolValue") and contraband.Value then return "ContrabandReal", true end
+        local fakePass = rv:FindFirstChild("FakePassport"); if fakePass and fakePass:IsA("BoolValue") and fakePass.Value then return "FakePassport", true end end
+    return nil, nil
+end
 local function classify(c)
-    if not c then return"Bad"end;local nm=c.Name or"";local fp="";pcall(function()fp=c:GetFullName()end);dp(string.format("[%s] %s",nm,fp))
+    if not c then return "Bad" end
+    local nm=c.Name or "";local fp="";pcall(function()fp=c:GetFullName()end)
     local h=c:FindFirstChildOfClass("Humanoid")
-    for _,obj in ipairs({c,h})do if obj then
-        for _,an in ipairs(AN)do local v=nil;pcall(function()v=obj:GetAttribute(an)end);if v then local vs=tostring(v):lower();for _,g in ipairs(AG)do if vs:find(g,1,true)then dp("  A+ "..an.."="..tostring(v));return"Good"end end;for _,b in ipairs(AB)do if vs:find(b,1,true)then dp("  A- "..an.."="..tostring(v));return"Bad"end end end end
-        pcall(function()for _,a in ipairs(obj:GetAttributes())do dp("  ATTR "..a.."="..tostring(obj:GetAttribute(a)))end end)
-    end end
+    if h then for _,an in ipairs({"NPCType","Type","Faction","Team","Role","Kind","Affiliation","Alignment","Side"})do local v=nil;pcall(function()v=h:GetAttribute(an)end);if v then local vs=tostring(v):lower();for _,g in ipairs({"agent","good","friendly","ally","police","friend","guard","civilian","security","law","team"})do if vs:find(g,1,true)then return "Good"end end;for _,b in ipairs({"enemy","bad","hostile","terrorist","criminal","danger","evil","suspect","threat","invader","rogue"})do if vs:find(b,1,true)then return "Bad"end end end end end
+    local pType,pVal=scanProperties(c);if pType then return pVal and "Bad" or "Good" end
     local nl=nm:lower()
-    for _,kw in ipairs(NG)do if nl:find(kw:lower(),1,true)then dp("  N+ "..kw);return"Good"end end
-    for _,kw in ipairs(NB)do if nl:find(kw:lower(),1,true)then dp("  N- "..kw);return"Bad"end end
+    for _,kw in ipairs({"警察","保安","警卫","警","守卫","士兵","police","guard","agent","officer","prisoner","prison","store","shop","citizen","civilian","市民","路人","商人"})do if nl:find(kw:lower(),1,true)then return "Good"end end
+    for _,kw in ipairs({"恐怖","匪徒","匪","敌人","坏","犯罪","袭击","暴徒","杀手","terrorist","enemy","hostile","criminal","danger","suspect","attacker","smuggler","走私","毒品"})do if nl:find(kw:lower(),1,true)then return "Bad"end end
     local pl=fp:lower()
-    for _,kw in ipairs(PG)do if pl:find(kw,1,true)then dp("  P+ "..kw);return"Good"end end
-    for _,kw in ipairs(PB)do if pl:find(kw,1,true)then dp("  P- "..kw);return"Bad"end end
-    dp("  ? 默认坏人");return"Bad"
+    for _,kw in ipairs({"agent","police","friendly","civilian","citizen","prisoner","store","shop","jail"})do if pl:find(kw,1,true)then return "Good"end end
+    for _,kw in ipairs({"enemy","terror","hostile","criminal","danger","invader","attack","suspect","rogue"})do if pl:find(kw,1,true)then return "Bad"end end
+    return "Good"
 end
 local function isP(c)if not c then return false end;for _,p in ipairs(Players:GetPlayers())do if p.Character==c then return true end end;return false end
 local function me(c,nt)
@@ -86,16 +89,15 @@ local function me(c,nt)
     local bg=tg(Instance.new("Frame"));bg.Size=UDim2.new(1,0,1,0);bg.BackgroundColor3=Color3.fromRGB(0,0,0);bg.BackgroundTransparency=0.3;bg.BorderSizePixel=0;bg.Parent=bb;tg(Instance.new("UICorner"));bg.UICorner.CornerRadius=UDim.new(0,4)
     local lb=tg(Instance.new("TextLabel"));lb.Size=UDim2.new(1,-4,0.5,0);lb.Position=UDim2.new(0,2,0,1);lb.BackgroundTransparency=1;lb.TextColor3=col;lb.TextScaled=true;lb.Font=Enum.Font.SourceSansBold;lb.Text=nt=="Good"and"👮 好人"or"💀 坏人";lb.BorderSizePixel=0;lb.Parent=bg
     local inf=tg(Instance.new("TextLabel"));inf.Size=UDim2.new(1,-4,0.4,0);inf.Position=UDim2.new(0,2,0.5,2);inf.BackgroundTransparency=1;inf.TextColor3=Color3.fromRGB(220,220,220);inf.TextScaled=true;inf.Font=Enum.Font.SourceSans;inf.Text="";inf.BorderSizePixel=0;inf.Parent=bg
-    if S.DebugMode then local at="";pcall(function()for _,a in ipairs(c:GetAttributes())do at=at..a.."="..tostring(c:GetAttribute(a)).." "end end);local h2=c:FindFirstChildOfClass("Humanoid");if h2 then pcall(function()for _,a in ipairs(h2:GetAttributes())do at=at..a.."="..tostring(h2:GetAttribute(a)).." "end end)end;inf.Text=c.Name..(at~=""and(" | "..at)or"")end
+    if S.DebugMode then local at="";pcall(function()local pv=c:FindFirstChild("Properties");if pv then for _,ch in ipairs(pv:GetChildren())do if ch:IsA("Configuration")or ch:IsA("Folder")then for _,val in ipairs(ch:GetChildren())do if val:IsA("BoolValue")then at=at..ch.Name.."."..val.Name.."="..tostring(val.Value).." "end end end end end end);inf.Text=c.Name..(at~=""and(" | "..at)or"")end
     EO[c]={HL=hl,BB=bb,LB=lb,Inf=inf,HD=hd,RT=rt,NT=nt};ST.S=ST.S+1;TR[c]=nt
 end
 local function sc()
-    if IS then return end;IS=true;ST.G=0;ST.B=0;ST.S=0;dp("=====SCAN=====");local viewed={}
+    if IS then return end;IS=true;ST.G=0;ST.B=0;ST.S=0;local viewed={}
     pcall(function()
         for _,o in ipairs(WS:GetDescendants())do if o:IsA("Humanoid")then local c=o.Parent;if c and not TR[c]and not isP(c)and not viewed[c]then viewed[c]=true;local nt=classify(c);if nt=="Good"then ST.G=ST.G+1 else ST.B=ST.B+1 end;if not EO[c]then me(c,nt)end end end end
         for _,o in ipairs(WS:GetDescendants())do if o:IsA("BasePart")and o.Name=="Head"then local c=o.Parent;if c and c:IsA("Model")and not TR[c]and not isP(c)and not viewed[c]then viewed[c]=true;local nt=classify(c);if nt=="Good"then ST.G=ST.G+1 else ST.B=ST.B+1 end;if not EO[c]then me(c,nt)end end end end
-    end)
-    dp(string.format("=====END G:%d B:%d=====",ST.G,ST.B));IS=false
+    end);IS=false
 end
 local function us()
     pcall(function()
@@ -123,7 +125,7 @@ cfb()
 local WI=nil;local ok,rv=pcall(function()return loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()end)
 if ok and rv then
     WI=rv;pcall(function()WI:SetTheme("Dark")end);S.ParticleColor=gtc("Dark")
-    WI:Popup({Title="机场安全透视 v13.0",Icon="solar:info-square-bold",Content="👁 透视高亮 + 头顶标签\n🔍 双扫描全覆盖\n🎨 粒子+透明+滚动条\n⚠️ 功能默认关闭",
+    WI:Popup({Title="机场安全透视 v13.1",Icon="solar:info-square-bold",Content="👁 透视高亮 + 头顶标签\n🔍 基于Properties深度扫描分类\n🎨 粒子+透明+滚动条\n⚠️ 功能默认关闭",
         Buttons={{Title="取消",Callback=function()end,Variant="Tertiary"},{Title="确认加载",Icon="solar:arrow-right-bold",Callback=function()PP=true;pcall(function()WI:Notify({Title="✅ 已加载",Content="按RightShift打开菜单",Duration=4,Icon="solar:bell-bold"})end);task.spawn(function()cw();task.wait(1);sc()end)end,Variant="Primary"}}})
     task.spawn(function()
         while not PP do task.wait(0.5)end;task.wait(0.5);bu()
@@ -133,7 +135,6 @@ if ok and rv then
             if KB.ESP and KB.ESP~=""and kn==KB.ESP then S.Enabled=not S.Enabled;pcall(function()if CT.ESP then CT.ESP:Set(S.Enabled)end end);for _,o in pairs(EO)do local s=S.Enabled and(not S.BadOnly or o.NT=="Bad");if o.HL then o.HL.Enabled=s end;if o.BB then o.BB.Enabled=s end end;if S.Enabled and not IS then sc()end end
             if KB.BadOnly and KB.BadOnly~=""and kn==KB.BadOnly then S.BadOnly=not S.BadOnly;pcall(function()if CT.BO then CT.BO:Set(S.BadOnly)end end);for _,o in pairs(EO)do local s=S.Enabled and(not S.BadOnly or o.NT=="Bad");if o.HL then o.HL.Enabled=s end;if o.BB then o.BB.Enabled=s end end end end)
     end)
-
     function cw()
         if WN then return end;local ok2,w=pcall(function()return WI:CreateWindow({Title="机场安全透视",Author="b站英吉利超入_",Icon="solar:shield-warning-bold",Size=UDim2.fromOffset(750,520),ToggleKey=Enum.KeyCode.RightShift,Folder="airport-esp",Acrylic=true,Transparent=true,Resizable=false,SideBarWidth=180,ScrollBarEnabled=true,HideSearchBar=true,
             OnClose=function()disableESP();dp2()end,OnOpen=function()if S.Particles then cp()end end})end)
@@ -170,14 +171,14 @@ if ok and rv then
         ct:Button({Title="🗑️ 删除",Icon="solar:trash-bin-trash-bold",Justify="Center",Color=Color3.fromHex("#ff3040"),Callback=function()if not CM then return end;pcall(function()local c=CM:Config(CF);if c and c:Delete()then WI:Notify({Title="🗑️ 已删除",Content="配置 '"..CF.."'",Duration=3,Icon="solar:trash-bin-trash-bold"});ACD:Refresh(CM:AllConfigs())end end)end})
         task.spawn(function()task.wait(1);pcall(function()if CM then local c=CM:CreateConfig("default",true)end end);cp()end)
         local at=WN:Tab({Title="关于",Icon="solar:info-square-bold"})
-        at:Paragraph({Title="机场安全透视 v13.0",Desc="关闭窗口时自动关闭透视功能"})
+        at:Paragraph({Title="机场安全透视 v13.1",Desc="基于Properties深度扫描分类器"})
         at:Divider();at:Paragraph({Title="👤 作者",Desc="b站英吉利超入_"})
         at:Divider();at:Paragraph({Title="💡 使用",Desc=IM and"手机: 点击👁"or"PC: RightShift打开菜单"})
         at:Paragraph({Title="🧹 清理",Desc="执行: _G.CleanupESP()"})
     end
-    print("[v13.0] 已加载")
+    print("[v13.1] 已加载")
 else
-    print("[v13.0] WindUI加载失败")
+    print("[v13.1] WindUI加载失败")
     local msg=Instance.new("Message");msg.Text="⚠️WindUI加载失败";msg.Parent=WS;task.delay(3,function()msg:Destroy()end)
 end
-print("[v13.0] 完成")
+print("[v13.1] 完成")
