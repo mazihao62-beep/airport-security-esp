@@ -1,11 +1,12 @@
 --[[
-    机场安全透视 v13.3
+    机场安全透视 v13.4
     功能: NPC透视高亮+头顶标签+好人坏人区分+自定义快捷键+配置保存
-    修复: 悬浮按钮直接切换/眼图标改用中文/扫描去卡顿/全量+增量扫描
+    修复: 悬浮按钮直接切换/眼图标用中文/全量+增量扫描/IM变量
     作者: b站英吉利超入_
 ]]
 local Players=game:GetService("Players");local UIS=game:GetService("UserInputService");local WS=game:GetService("Workspace");local CG=game:GetService("CoreGui")
 local localPlayer=Players.LocalPlayer
+local IM=UIS.TouchEnabled and not UIS.KeyboardEnabled;if not IM then pcall(function()IM=UIS.TouchEnabled and not UIS.MouseEnabled end)end
 local TAG="AirportESP"
 local function clean()
     local c=0;pcall(function()
@@ -27,20 +28,13 @@ local function gtc(n)
 end
 local EO={};local TR={};local IS=false;local WN=nil;local FB=nil;local PC=nil;local ST={G=0,B=0,S=0};local CT={};local KB={};local PP=false;local TE={};local CF="default";local DL={}
 local PR=false;local PS={};local WF=nil;local PH=nil
--- 悬浮按钮: 直接切换窗口可见性,不用VIM
 local function mt()
     if not WN then return end
-    local v=not WN.Visible
-    WN.Visible=v
-    if v then
-        if S.Particles then task.spawn(cp) end
-    else
-        S.Enabled=false
-        for _,o in pairs(EO)do if o.HL then o.HL.Enabled=false end;if o.BB then o.BB.Enabled=false end end
-        pcall(function()if PC then pcall(function()PC:Destroy()end);PC=nil end;PS={};PR=false end)
-    end
+    local v=not WN.Visible;WN.Visible=v
+    if v then if S.Particles then task.spawn(cp)end
+    else S.Enabled=false;for _,o in pairs(EO)do if o.HL then o.HL.Enabled=false end;if o.BB then o.BB.Enabled=false end end
+        pcall(function()if PC then pcall(function()PC:Destroy()end);PC=nil end;PS={};PR=false end)end
 end
-local function dp(m)table.insert(DL,m);if #DL>20 then table.remove(DL,1)end;print("[D]"..m)end
 local function fw2()WF=nil;pcall(function()for _,g in ipairs(CG:GetChildren())do if g:IsA("ScreenGui")and g.Name:find("WindUI")then local bs=0;local b=nil;for _,f in ipairs(g:GetChildren())do if f:IsA("Frame")and f.AbsoluteSize.X>bs then bs=f.AbsoluteSize.X;b=f end end;if b then WF=b end;return end end end);return WF end
 local function cp()
     if PC then pcall(function()PC:Destroy()end);PC=nil end;PS={};PR=false;if PH then pcall(function()PH:Disconnect()end);PH=nil end;if not S.Particles then return end;fw2()
@@ -57,16 +51,15 @@ local function upc()local c=gtc(S.CurrentTheme);if not c or #PS==0 then return e
 local function dp2()PR=false;if PH then pcall(function()PH:Disconnect()end);PH=nil end;if PC then pcall(function()PC:Destroy()end);PC=nil end;PS={}end
 local function bu()pcall(function()for _,s in ipairs(CG:GetDescendants())do if s:IsA("ScrollingFrame")then s.ScrollBarThickness=0 end end end)end
 task.spawn(function()while true do task.wait(3);bu()end end)
-
 local function scanProperties(model)
     if not model then return nil,nil end
     local props=model:FindFirstChild("Properties")
     if not props then return nil,nil end
     local sv=props:FindFirstChild("StatusVariables")
-    if sv then local hostile=sv:FindFirstChild("Hostile");if hostile and hostile:IsA("BoolValue")and hostile.Value then return "Hostile",true end end
+    if sv then local hostile=sv:FindFirstChild("Hostile");if hostile and hostile:IsA("BoolValue")and hostile.Value then return"Hostile",true end end
     local rv=props:FindFirstChild("RandomVariables")
-    if rv then local c=rv:FindFirstChild("ContrabandReal");if c and c:IsA("BoolValue")and c.Value then return "ContrabandReal",true end
-        local f=rv:FindFirstChild("FakePassport");if f and f:IsA("BoolValue")and f.Value then return "FakePassport",true end end
+    if rv then local c=rv:FindFirstChild("ContrabandReal");if c and c:IsA("BoolValue")and c.Value then return"ContrabandReal",true end
+        local f=rv:FindFirstChild("FakePassport");if f and f:IsA("BoolValue")and f.Value then return"FakePassport",true end end
     return nil,nil
 end
 local function classify(c)
@@ -99,7 +92,6 @@ local function me(c,nt)
     local lb=tg(Instance.new("TextLabel"));lb.Size=UDim2.new(1,-4,1,0);lb.Position=UDim2.new(0,2,0,0);lb.BackgroundTransparency=1;lb.TextColor3=col;lb.TextScaled=true;lb.Font=Enum.Font.SourceSansBold;lb.Text=nt=="Good"and"👮 好人"or"💀 坏人";lb.BorderSizePixel=0;lb.Parent=bg
     EO[c]={HL=hl,BB=bb,LB=lb,HD=hd,RT=rt,NT=nt};ST.S=ST.S+1;TR[c]=nt
 end
--- 全量扫描(首次)
 local function sc()
     if IS then return end;IS=true;ST.G=0;ST.B=0;ST.S=0;local viewed={}
     pcall(function()
@@ -108,7 +100,6 @@ local function sc()
         end
     end);IS=false
 end
--- 增量扫描(后续轻量)
 local function incScan()
     local viewed={}
     for _,o in ipairs(WS:GetDescendants())do
@@ -120,7 +111,7 @@ local function cleanEO()
     for c,o in pairs(EO)do
         if not c or not c.Parent then pcall(function()o.HL:Destroy()end);pcall(function()o.BB:Destroy()end);EO[c]=nil;TR[c]=nil;ch=true end
     end
-    return ch
+    if ch then ST.G=0;ST.B=0;for _,nt in pairs(TR)do if nt=="Good"then ST.G=ST.G+1 else ST.B=ST.B+1 end end end
 end
 local function us()
     pcall(function()
@@ -137,7 +128,6 @@ local function cfb()
         FB=tg(Instance.new("ScreenGui"));FB.Name="AirportESP_Btn";FB.ResetOnSpawn=false;FB.Parent=CG
         local btn=tg(Instance.new("ImageButton"));btn.Size=UDim2.new(0,50,0,50);btn.Position=UDim2.new(0.9,-25,0.8,-25);btn.BackgroundColor3=Color3.fromRGB(0,180,80);btn.BackgroundTransparency=0.2;btn.BorderSizePixel=0;btn.Parent=FB
         tg(Instance.new("UICorner"));btn.UICorner.CornerRadius=UDim.new(0,25)
-        -- 眼图标用中文汉字代替emoji
         local t=tg(Instance.new("TextLabel"));t.Size=UDim2.new(1,0,1,0);t.BackgroundTransparency=1;t.Text="眼";t.TextScaled=true;t.Font=Enum.Font.SourceSansBold;t.TextColor3=Color3.fromRGB(255,255,255);t.Parent=btn
         local d,ds,sp=false,nil,nil
         btn.InputBegan:Connect(function(i)if i.UserInputType==Enum.UserInputType.Touch or i.UserInputType==Enum.UserInputType.MouseButton1 then d=true;ds=i.Position;sp=btn.Position end end)
@@ -151,15 +141,11 @@ cfb()
 local WI=nil;local ok,rv=pcall(function()return loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()end)
 if ok and rv then
     WI=rv;pcall(function()WI:SetTheme("Dark")end);S.ParticleColor=gtc("Dark")
-    WI:Popup({Title="机场安全透视 v13.3",Icon="solar:info-square-bold",Content="👁 透视高亮+头顶标签+全量增量扫描\n🔍 Properties深度扫描分类\n⚠️ 功能默认关闭",
+    WI:Popup({Title="机场安全透视 v13.4",Icon="solar:info-square-bold",Content="👁 透视高亮+头顶标签\n🔍 Properties深度扫描分类\n⚠️ 功能默认关闭",
         Buttons={{Title="取消",Callback=function()end,Variant="Tertiary"},{Title="确认加载",Icon="solar:arrow-right-bold",Callback=function()PP=true;pcall(function()WI:Notify({Title="✅ 已加载",Content="按RightShift打开菜单",Duration=4,Icon="solar:bell-bold"})end);task.spawn(function()cw();task.wait(1);sc()end)end,Variant="Primary"}}})
     task.spawn(function()
         while not PP do task.wait(0.5)end;task.wait(0.5);bu()
-        -- 轻量维护循环(不重复全量扫描)
-        task.spawn(function()while true do pcall(function()
-            if cleanEO()then ST.G=0;ST.B=0;for _,nt in pairs(TR)do if nt=="Good"then ST.G=ST.G+1 else ST.B=ST.B+1 end end end
-            if S.Enabled then incScan()end
-        end);task.wait(5)end end)
+        task.spawn(function()while true do pcall(function()cleanEO();if S.Enabled then incScan()end end);task.wait(5)end end)
         task.spawn(function()while true do pcall(function()us()end);task.wait(0.5)end end)
         UIS.InputBegan:Connect(function(i,g)if g then return end;if i.UserInputType~=Enum.UserInputType.Keyboard then return end;local kn=i.KeyCode.Name
             if KB.ESP and KB.ESP~=""and kn==KB.ESP then S.Enabled=not S.Enabled;pcall(function()if CT.ESP then CT.ESP:Set(S.Enabled)end end);for _,o in pairs(EO)do local s=S.Enabled and(not S.BadOnly or o.NT=="Bad");if o.HL then o.HL.Enabled=s end;if o.BB then o.BB.Enabled=s end end;if S.Enabled then task.spawn(sc)end end
@@ -201,13 +187,13 @@ if ok and rv then
         ct:Button({Title="🗑️ 删除",Icon="solar:trash-bin-trash-bold",Justify="Center",Color=Color3.fromHex("#ff3040"),Callback=function()if not CM then return end;pcall(function()local c=CM:Config(CF);if c and c:Delete()then WI:Notify({Title="🗑️ 已删除",Content="配置 '"..CF.."'",Duration=3,Icon="solar:trash-bin-trash-bold"});ACD:Refresh(CM:AllConfigs())end end)end})
         task.spawn(function()task.wait(1);pcall(function()if CM then local c=CM:CreateConfig("default",true)end end);task.spawn(cp)end)
         local at=WN:Tab({Title="关于",Icon="solar:info-square-bold"})
-        at:Paragraph({Title="机场安全透视 v13.3",Desc="修复: 悬浮按钮/眼图标/卡顿/全量扫描"})
+        at:Paragraph({Title="机场安全透视 v13.4",Desc="修复: 悬浮按钮/眼图标/卡顿/全量扫描"})
         at:Divider();at:Paragraph({Title="👤 作者",Desc="b站英吉利超入_"})
         at:Divider();at:Paragraph({Title="💡 使用",Desc=IM and"手机: 点击悬浮按钮"or"PC: RightShift打开菜单"})
         at:Paragraph({Title="🧹 清理",Desc="_G.CleanupESP()"})
     end
-    print("[v13.3] 已加载")
+    print("[v13.4] 已加载")
 else
-    print("[v13.3] WindUI加载失败")
+    print("[v13.4] WindUI加载失败")
     local msg=Instance.new("Message");msg.Text="⚠️WindUI加载失败";msg.Parent=WS;task.delay(3,function()msg:Destroy()end)
 end
