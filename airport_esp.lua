@@ -1,7 +1,7 @@
 --[[
-    机场安全透视 v12.9
+    机场安全透视 v13.0
     功能: NPC透视高亮+头顶标签+好人坏人区分+自定义快捷键+配置保存
-    修复12个Bug: 粒子窗口内/透明/滚动条/悬浮按钮/分类器/清理残留
+    修复13个Bug: 粒子窗口内/透明/滚动条/悬浮按钮/分类器/清理残留/窗口关闭时自动关闭功能
     作者: b站英吉利超入_
 ]]
 local Players=game:GetService("Players");local UIS=game:GetService("UserInputService");local WS=game:GetService("Workspace");local CG=game:GetService("CoreGui");local VIM=game:GetService("VirtualInputManager");local RS=game:GetService("RunService")
@@ -28,9 +28,12 @@ local function gtc(n)
 end
 local EO={};local TR={};local IS=false;local WN=nil;local FB=nil;local PC=nil;local ST={G=0,B=0,S=0};local CT={};local KB={};local PP=false;local TE={};local CF="default";local DL={}
 local PR=false;local PS={};local WF=nil;local PH=nil
--- 悬浮按钮: 无限重试,永不放弃
 local function mt()task.spawn(function()while not WN do task.wait(0.1)end;pcall(function()VIM:SendKeyEvent(true,Enum.KeyCode.RightShift,false,game);task.wait(0.05);VIM:SendKeyEvent(false,Enum.KeyCode.RightShift,false,game)end)end)end
 local function dp(m)table.insert(DL,m);if #DL>20 then table.remove(DL,1)end;print("[D]"..m)end
+local function disableESP()
+    S.Enabled=false;pcall(function()if CT.ESP then CT.ESP:Set(false)end end)
+    for _,o in pairs(EO)do if o.HL then o.HL.Enabled=false end;if o.BB then o.BB.Enabled=false end end
+end
 local function fw2()WF=nil;pcall(function()for _,g in ipairs(CG:GetChildren())do if g:IsA("ScreenGui")and g.Name:find("WindUI")then local bs=0;local b=nil;for _,f in ipairs(g:GetChildren())do if f:IsA("Frame")and f.AbsoluteSize.X>bs then bs=f.AbsoluteSize.X;b=f end end;if b then WF=b end;return end end end);return WF end
 local function cp()
     if PC then pcall(function()PC:Destroy()end);PC=nil end;PS={};PR=false;if PH then pcall(function()PH:Disconnect()end);PH=nil end;if not S.Particles then return end;fw2()
@@ -45,7 +48,6 @@ local function cp()
 end
 local function upc()local c=gtc(S.CurrentTheme);if not c or #PS==0 then return end;pcall(function()for _,p in ipairs(PS)do if p.F and p.F.Parent then p.F.BackgroundColor3=c end end end)end
 local function dp2()PR=false;if PH then pcall(function()PH:Disconnect()end);PH=nil end;if PC then pcall(function()PC:Destroy()end);PC=nil end;PS={}end
--- 隐藏原生滚动条(WindUI自定义滚动条)
 local function bu()pcall(function()for _,s in ipairs(CG:GetDescendants())do if s:IsA("ScrollingFrame")then s.ScrollBarThickness=0 end end end)end
 task.spawn(function()while true do task.wait(3);bu()end end)
 
@@ -103,7 +105,6 @@ local function us()
         for c,o in pairs(EO)do if not S.DebugMode and o.Inf then local pts={};if S.ShowDistance and mr and o.RT then table.insert(pts,math.floor((o.RT.Position-mr.Position).Magnitude+0.5).."m")end;if S.ShowHealth then local h2=c:FindFirstChildOfClass("Humanoid");if h2 then table.insert(pts,"HP:"..math.floor(h2.Health+0.5).."/"..math.floor(h2.MaxHealth+0.5))end end;o.Inf.Text=table.concat(pts," | ")else o.Inf.Text=""end end
     end)
 end
--- 悬浮按钮(协程无限重试)
 local function cfb()
     pcall(function()
         FB=tg(Instance.new("ScreenGui"));FB.Name="AirportESP_Btn";FB.ResetOnSpawn=false;FB.Parent=CG
@@ -122,7 +123,7 @@ cfb()
 local WI=nil;local ok,rv=pcall(function()return loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()end)
 if ok and rv then
     WI=rv;pcall(function()WI:SetTheme("Dark")end);S.ParticleColor=gtc("Dark")
-    WI:Popup({Title="机场安全透视 v12.9",Icon="solar:info-square-bold",Content="👁 透视高亮 + 头顶标签\n🔍 双扫描全覆盖\n🎨 粒子+透明+滚动条\n⚠️ 功能默认关闭",
+    WI:Popup({Title="机场安全透视 v13.0",Icon="solar:info-square-bold",Content="👁 透视高亮 + 头顶标签\n🔍 双扫描全覆盖\n🎨 粒子+透明+滚动条\n⚠️ 功能默认关闭",
         Buttons={{Title="取消",Callback=function()end,Variant="Tertiary"},{Title="确认加载",Icon="solar:arrow-right-bold",Callback=function()PP=true;pcall(function()WI:Notify({Title="✅ 已加载",Content="按RightShift打开菜单",Duration=4,Icon="solar:bell-bold"})end);task.spawn(function()cw();task.wait(1);sc()end)end,Variant="Primary"}}})
     task.spawn(function()
         while not PP do task.wait(0.5)end;task.wait(0.5);bu()
@@ -134,9 +135,10 @@ if ok and rv then
     end)
 
     function cw()
-        if WN then return end;local ok2,w=pcall(function()return WI:CreateWindow({Title="机场安全透视",Author="b站英吉利超入_",Icon="solar:shield-warning-bold",Size=UDim2.fromOffset(750,520),ToggleKey=Enum.KeyCode.RightShift,Folder="airport-esp",Acrylic=true,Transparent=true,Resizable=false,SideBarWidth=180,ScrollBarEnabled=true,HideSearchBar=true})end)
+        if WN then return end;local ok2,w=pcall(function()return WI:CreateWindow({Title="机场安全透视",Author="b站英吉利超入_",Icon="solar:shield-warning-bold",Size=UDim2.fromOffset(750,520),ToggleKey=Enum.KeyCode.RightShift,Folder="airport-esp",Acrylic=true,Transparent=true,Resizable=false,SideBarWidth=180,ScrollBarEnabled=true,HideSearchBar=true,
+            OnClose=function()disableESP();dp2()end,OnOpen=function()if S.Particles then cp()end end})end)
         if not ok2 or not w then print("[错误] 窗口创建失败");return end;WN=w;pcall(function()WI.TransparencyValue=0.22 end)
-        task.spawn(function()local wv=nil;while WN do task.wait(0.5);pcall(function()local ok3,v=pcall(function()return WN.Visible end);if ok3 then if wv==nil then wv=v end;if wv~=v then if v then if S.Particles then cp()end else dp2()end;wv=v end end end)end end)
+        task.spawn(function()local wv=nil;while WN do task.wait(0.5);pcall(function()local ok3,v=pcall(function()return WN.Visible end);if ok3 then if wv==nil then wv=v end;if wv~=v then if v then if S.Particles then cp()end else disableESP();dp2()end;wv=v end end end)end end)
         local mt=WN:Tab({Title="主控面板",Icon="solar:slider-vertical-bold"})
         mt:Paragraph({Title="👁 透视控制"})
         CT.ESP=mt:Toggle({Flag="ESPToggle",Title="透视开关",Value=false,Callback=function(v)S.Enabled=v;for _,o in pairs(EO)do local s=v and(not S.BadOnly or o.NT=="Bad");if o.HL then o.HL.Enabled=s end;if o.BB then o.BB.Enabled=s end end;if v and not IS then sc()end end})
@@ -168,14 +170,14 @@ if ok and rv then
         ct:Button({Title="🗑️ 删除",Icon="solar:trash-bin-trash-bold",Justify="Center",Color=Color3.fromHex("#ff3040"),Callback=function()if not CM then return end;pcall(function()local c=CM:Config(CF);if c and c:Delete()then WI:Notify({Title="🗑️ 已删除",Content="配置 '"..CF.."'",Duration=3,Icon="solar:trash-bin-trash-bold"});ACD:Refresh(CM:AllConfigs())end end)end})
         task.spawn(function()task.wait(1);pcall(function()if CM then local c=CM:CreateConfig("default",true)end end);cp()end)
         local at=WN:Tab({Title="关于",Icon="solar:info-square-bold"})
-        at:Paragraph({Title="机场安全透视 v12.9",Desc="修复12个Bug"})
+        at:Paragraph({Title="机场安全透视 v13.0",Desc="关闭窗口时自动关闭透视功能"})
         at:Divider();at:Paragraph({Title="👤 作者",Desc="b站英吉利超入_"})
         at:Divider();at:Paragraph({Title="💡 使用",Desc=IM and"手机: 点击👁"or"PC: RightShift打开菜单"})
         at:Paragraph({Title="🧹 清理",Desc="执行: _G.CleanupESP()"})
     end
-    print("[v12.9] 已加载")
+    print("[v13.0] 已加载")
 else
-    print("[v12.9] WindUI加载失败")
+    print("[v13.0] WindUI加载失败")
     local msg=Instance.new("Message");msg.Text="⚠️WindUI加载失败";msg.Parent=WS;task.delay(3,function()msg:Destroy()end)
 end
-print("[v12.9] 完成")
+print("[v13.0] 完成")
