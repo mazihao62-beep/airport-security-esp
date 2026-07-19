@@ -1,7 +1,7 @@
 --[[
     机场安全透视 v14.5
     功能: NPC透视+头顶标签+分类+快捷键+配置保存
-    修复: 粒子ZIndex=100+透明度降低+内容Frame查找
+    修复: 粒子独立ScreenGui+DisplayOrder 999999，彻底脱离WindUI内部结构
     作者: b站英吉利超入_
 ]]
 local P=game:GetService("Players")
@@ -18,7 +18,7 @@ local function clean()
         if g:IsA("ScreenGui")then
             local n=g.Name
             if n:find("WindUI")then wc=wc+1;if wc>1 then pcall(function()g:Destroy()end)end
-            elseif n=="A"or n:find("AirportESP")then pcall(function()g:Destroy()end)end
+            elseif n=="A"or n:find("AirportESP")or n:find("ESP_Particles")then pcall(function()g:Destroy()end)end
         end
     end
 end
@@ -114,10 +114,7 @@ local function doScan()
                 seen[c]=true
                 local isPl=false
                 for _,p in ipairs(P:GetPlayers())do if p.Character==c then isPl=true;break end end
-                if not isPl then
-                    local nt=classify(c)
-                    makeESP(c,nt)
-                end
+                if not isPl then local nt=classify(c);makeESP(c,nt)end
             end
         end
     end
@@ -125,24 +122,18 @@ end
 
 local function refreshESP()
     for c,o in pairs(H)do
-        if not c or not c.Parent then
-            pcall(function()o.hl:Destroy()end)
-            pcall(function()o.bb:Destroy()end)
-            H[c]=nil
+        if not c or not c.Parent then pcall(function()o.hl:Destroy()end);pcall(function()o.bb:Destroy()end);H[c]=nil
         else
             local en=S.Enabled and(not S.BadOnly or o.nt=="Bad")
-            if o.hl then o.hl.Enabled=en end
-            if o.bb then o.bb.Enabled=en end
+            if o.hl then o.hl.Enabled=en end;if o.bb then o.bb.Enabled=en end
             if o.lb then
                 local txt=o.tag
                 if S.ShowDist and LP.Character then
                     local mp=LP.Character:FindFirstChild("HumanoidRootPart")
                     if mp and o.hrp then txt=txt.."\n"..math.floor((o.hrp.Position-mp.Position).Magnitude+0.5).."m"end
                 end
-                if S.ShowHP then
-                    local h2=c:FindFirstChildOfClass("Humanoid")
-                    if h2 then txt=txt.."\nHP:"..math.floor(h2.Health+0.5).."/"..math.floor(h2.MaxHealth+0.5)end
-                end
+                if S.ShowHP then local h2=c:FindFirstChildOfClass("Humanoid")
+                    if h2 then txt=txt.."\nHP:"..math.floor(h2.Health+0.5).."/"..math.floor(h2.MaxHealth+0.5)end end
                 o.lb.Text=txt
             end
         end
@@ -159,64 +150,50 @@ local function updateStats()
     end)
 end
 
--- 粒子（ZIndex=100 确保不被WindUI内容遮挡）
-local function findContentFrame()
-    for _,g in ipairs(C:GetChildren())do
-        if g:IsA("ScreenGui")and g.Name:find("WindUI")then
-            -- 优先找ScrollingFrame（WindUI的内容区域）
-            for _,sf in ipairs(g:GetDescendants())do
-                if sf:IsA("ScrollingFrame")and sf.AbsoluteSize.X>400 and sf.AbsoluteSize.Y>200 then
-                    return sf
-                end
-            end
-            -- 备选：找最大的Frame
-            local bs=0;local best=nil
-            for _,f in ipairs(g:GetDescendants())do
-                if f:IsA("Frame")and f.AbsoluteSize.X>bs then bs=f.AbsoluteSize.X;best=f end
-            end
-            return best
-        end
-    end
-    return nil
-end
-
+-- 粒子: 独立ScreenGui + DisplayOrder最高层
 local function mkParts()
     if not PP then return end
     if PC then return end
-    task.wait(0.8)
-    local wf=findContentFrame()
-    if not wf then task.wait(1);wf=findContentFrame()end
-    if not wf then return end
-    PC=Instance.new("Frame");PC.Size=UDim2.new(1,0,1,0);PC.BackgroundTransparency=1;PC.BorderSizePixel=0
-    PC.ClipsDescendants=true;PC.ZIndex=100;PC.Parent=wf
-    local col=S.PColor;local w=wf.AbsoluteSize.X;local h=wf.AbsoluteSize.Y
-    if w<=0 then return end
+    task.wait(0.5)
+    local sg=Instance.new("ScreenGui");sg.Name="ESP_Particles";sg.ResetOnSpawn=false
+    sg.DisplayOrder=999999;sg.IgnoreGuiInset=true;sg.Parent=C
+    PC=Instance.new("Frame");PC.Size=UDim2.new(1,0,1,0);PC.BackgroundTransparency=1
+    PC.BorderSizePixel=0;PC.Active=false;PC.Parent=sg
+    local col=S.PColor;local vp=W.CurrentCamera.ViewportSize;local w=vp.X;local h=vp.Y
+    if w<=0 or h<=0 then w=1280;h=720 end
+    local mx,my=w*0.25,h*0.1;local MW,MH=w*0.75,h*0.85
     for i=1,50 do
         local d=Instance.new("Frame");local sz=math.random(5,10);d.Size=UDim2.new(0,sz,0,sz)
-        d.Position=UDim2.fromOffset(math.random(10,math.max(20,w-10)),math.random(10,math.max(20,h-10)))
-        d.BackgroundColor3=col;d.BackgroundTransparency=0.2+math.random()*0.4;d.BorderSizePixel=0;d.ZIndex=100;d.Parent=PC
+        d.Position=UDim2.fromOffset(math.random(mx,MW),math.random(my,MH))
+        d.BackgroundColor3=col;d.BackgroundTransparency=0.3+math.random()*0.5;d.BorderSizePixel=0;d.Parent=PC
         Instance.new("UICorner",d).CornerRadius=UDim.new(0,10)
         local a=math.random()*6.28;local sp=0.08+math.random()*0.2
         table.insert(PS,{F=d,Vx=math.cos(a)*sp,Vy=math.sin(a)*sp,Ph=math.random()*6.28,Sz=sz})
     end
     PR=true
-    task.spawn(function()local t=0;while PR and PC do t=t+0.03;pcall(function()
-        local cw=PC.AbsoluteSize.X;local ch=PC.AbsoluteSize.Y
-        if cw<=0 or ch<=0 then return end
-        for _,p in ipairs(PS)do
-            if p.F and p.F.Parent then
-                local x=p.F.Position.X.Offset+p.Vx;local y=p.F.Position.Y.Offset+p.Vy;local sz=p.F.AbsoluteSize.X
-                if x+sz>=cw then x=cw-sz;p.Vx=-p.Vx*0.95 elseif x<0 then x=0;p.Vx=-p.Vx*0.95 end
-                if y+sz>=ch then y=ch-sz;p.Vy=-p.Vy*0.95 elseif y<0 then y=0;p.Vy=-p.Vy*0.95 end
-                p.F.Position=UDim2.fromOffset(x,y);p.F.BackgroundTransparency=0.2+math.sin(t*0.8+p.Ph)*0.3
-                local bs=math.max(2,p.Sz+math.sin(t+p.Ph)*1);p.F.Size=UDim2.new(0,bs,0,bs)
-            end
+    task.spawn(function()
+        local t=0
+        while PR and PC do t=t+0.03
+            pcall(function()
+                local cw=PC.AbsoluteSize.X;local ch=PC.AbsoluteSize.Y
+                if cw<=0 or ch<=0 then return end
+                for _,p in ipairs(PS)do
+                    if p.F and p.F.Parent then
+                        local x=p.F.Position.X.Offset+p.Vx;local y=p.F.Position.Y.Offset+p.Vy;local sz=p.F.AbsoluteSize.X
+                        if x+sz>=cw then x=cw-sz;p.Vx=-p.Vx*0.95 elseif x<0 then x=0;p.Vx=-p.Vx*0.95 end
+                        if y+sz>=ch then y=ch-sz;p.Vy=-p.Vy*0.95 elseif y<0 then y=0;p.Vy=-p.Vy*0.95 end
+                        p.F.Position=UDim2.fromOffset(x,y);p.F.BackgroundTransparency=0.3+math.sin(t*0.8+p.Ph)*0.4
+                        local bs=math.max(2,p.Sz+math.sin(t+p.Ph)*1.5);p.F.Size=UDim2.new(0,bs,0,bs)
+                    end
+                end
+            end)
+            task.wait(0.03)
         end
-    end);task.wait(0.03)end end)
+    end)
 end
 
 local function killParts()
-    PR=false;if PC then pcall(function()PC:Destroy()end);PC=nil end;PS={}
+    PR=false;if PC then pcall(function()local p=PC.Parent;if p then p:Destroy()end end);PC=nil end;PS={}
 end
 
 local function upc()
@@ -249,7 +226,7 @@ local function makeWindow()
             Color=ColorSequence.new(Color3.fromRGB(0,255,100),Color3.fromRGB(0,200,255)),
             CornerRadius=UDim.new(1,0),StrokeThickness=3},
         OnClose=function()S.Enabled=false;if CT.ESP then CT.ESP:Set(false)end;refreshESP();killParts()end,
-        OnOpen=function()if S.Particles then task.spawn(function()task.wait(0.8);mkParts()end)end end
+        OnOpen=function()if S.Particles then task.spawn(function()task.wait(0.5);mkParts()end)end end
     })end)
     if not ok2 or not w then return end
     WN=w
@@ -257,8 +234,7 @@ local function makeWindow()
     local mt=WN:Tab({Title="主控面板",Icon="solar:slider-vertical-bold"})
     CT.ESP=mt:Toggle({Flag="ESP",Title="透视开关",Value=false,
         Callback=function(v)S.Enabled=v;refreshESP();if v then task.spawn(doScan)end end})
-    CT.BO=mt:Toggle({Flag="BadOnly",Title="仅显示坏人",Value=false,
-        Callback=function(v)S.BadOnly=v;refreshESP()end})
+    CT.BO=mt:Toggle({Flag="BadOnly",Title="仅显示坏人",Value=false,Callback=function(v)S.BadOnly=v;refreshESP()end})
     mt:Divider()
     CT.DT=mt:Toggle({Flag="Dist",Title="显示距离",Value=false,Callback=function(v)S.ShowDist=v end})
     CT.HT=mt:Toggle({Flag="Health",Title="显示血量",Value=false,Callback=function(v)S.ShowHP=v end})
@@ -281,9 +257,7 @@ local function makeWindow()
     CT.TD=ut:Dropdown({Flag="TD",Title="选择主题",Values=tn,Value="Dark",Callback=function(sl)if sl then S.Theme=sl;WI:SetTheme(sl);S.PColor=gtc(sl);upc()end end})
     
     local st=WN:Tab({Title="信息统计",Icon="solar:chart-bold"})
-    TE.GP=st:Paragraph({Title="🟢 好人: 0"})
-    TE.BP=st:Paragraph({Title="🔴 坏人: 0"})
-    TE.SP=st:Paragraph({Title="📊 总计: 0"})
+    TE.GP=st:Paragraph({Title="🟢 好人: 0"});TE.BP=st:Paragraph({Title="🔴 坏人: 0"});TE.SP=st:Paragraph({Title="📊 总计: 0"})
     
     local ct=WN:Tab({Title="配置管理",Icon="solar:diskette-bold"})
     local cni=ct:Input({Flag="CN",Title="配置名称",Value="default",Icon="solar:file-text-bold",Callback=function(v)CF=v end});ct:Space()
@@ -299,7 +273,7 @@ local function makeWindow()
     task.spawn(function()task.wait(1);pcall(function()CM:CreateConfig("default",true)end);task.spawn(mkParts)end)
     
     local at=WN:Tab({Title="关于",Icon="solar:info-square-bold"})
-    at:Paragraph({Title="机场安全透视 v14.5",Desc="粒子Z100+ScrollingFrame+更低透明度"})
+    at:Paragraph({Title="机场安全透视 v14.5",Desc="独立ScreenGui+DisplayOrder粒子"})
     at:Divider();at:Paragraph({Title="👤 作者",Desc="b站英吉利超入_"})
     at:Divider();at:Paragraph({Title="💡 使用",Desc=IM and"手机: 点击悬浮按钮"or"PC: RightShift打开菜单"})
     
@@ -321,7 +295,6 @@ if ok and rv then
                 WI:Notify({Title="✅ 已加载",Content="按RightShift打开菜单",Duration=4,Icon="solar:bell-bold"})
                 task.spawn(makeWindow)
             end,Variant="Primary"}}})
-    
     while not PP do task.wait(0.5)end
 else
     warn("WindUI加载失败")
