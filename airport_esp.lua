@@ -1,7 +1,7 @@
 --[[
-    机场安全透视 v14.0 - 彻底重写
+    机场安全透视 v14.1
     功能: NPC透视+头顶标签+分类+快捷键+配置保存
-    修复: 全量重写扫描/标签/粒子/按钮
+    修复: 清理保留WindUI/全量扫描/标签显示/按钮可用/粒子正常
     作者: b站英吉利超入_
 ]]
 local P=game:GetService("Players")
@@ -12,8 +12,16 @@ local LP=P.LocalPlayer
 local IM=U.TouchEnabled and not U.KeyboardEnabled
 if not IM then pcall(function()IM=U.TouchEnabled and not U.MouseEnabled end)end
 
--- 清理
-for _,v in ipairs(C:GetDescendants())do pcall(function()v:Destroy()end)end
+-- 精准清理: 只清自己的,保留WindUI
+local function clean()
+    for _,g in ipairs(C:GetChildren())do
+        if g:IsA("ScreenGui")then
+            local n=g.Name
+            if n=="A"or n:find("AirportESP")then pcall(function()g:Destroy()end)end
+        end
+    end
+end
+clean()
 
 local function scanProps(m)
     if not m then return nil end
@@ -51,9 +59,9 @@ local function classify(c)
 end
 
 local S={Enabled=false,BadOnly=false,ShowDist=false,ShowHP=false,MaxRange=500,Theme="Dark",PColor=Color3.fromRGB(80,170,255)}
-local H={} -- tracked highlights {model={hl=H,bb=B}}
+local H={}
 local GC=0;local BC=0;local SC=0
-local WN=nil;local WI=nil;local FB=nil;local PC=nil;local CT={};local KB={};local TE={};local PS={};local PR=false;local PP=false
+local WN=nil;local WI=nil;local FB=nil;local PC=nil;local CT={};local KB={};local TE={};local PS={};local PR=false;local PP=false;local CF="default"
 
 local function makeESP(c,nt)
     if not c or not c.Parent then return end
@@ -67,18 +75,16 @@ local function makeESP(c,nt)
     end
     local col=nt=="Good"and Color3.fromRGB(0,255,80)or Color3.fromRGB(255,40,40)
     local tag=nt=="Good"and"👮 好人"or"💀 坏人"
-    -- Highlight
     local hl=Instance.new("Highlight");hl.Adornee=c;hl.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop
     hl.FillTransparency=0.15;hl.OutlineTransparency=0;hl.FillColor=col;hl.OutlineColor=Color3.fromRGB(255,255,255)
     hl.Enabled=S.Enabled and(not S.BadOnly or nt=="Bad");hl.Parent=C
-    -- BillboardGui
     local head=c:FindFirstChild("Head")or hrp
     local bb=Instance.new("BillboardGui");bb.Adornee=head;bb.Size=UDim2.new(0,200,0,50)
     bb.StudsOffset=Vector3.new(0,3,0);bb.AlwaysOnTop=true;bb.MaxDistance=500
     bb.Enabled=S.Enabled and(not S.BadOnly or nt=="Bad");bb.Parent=C
     local bg=Instance.new("Frame");bg.Size=UDim2.new(1,0,1,0);bg.BackgroundColor3=Color3.fromRGB(0,0,0)
     bg.BackgroundTransparency=0.7;bg.BorderSizePixel=0;bg.Parent=bb
-    Instance.new("UICorner").CornerRadius=UDim.new(0,6);bg.UICorner=bg:FindFirstChildOfClass("UICorner")
+    local cn=Instance.new("UICorner");cn.CornerRadius=UDim.new(0,6);cn.Parent=bg
     local lb=Instance.new("TextLabel");lb.Size=UDim2.new(1,-4,1,0);lb.Position=UDim2.new(0,2,0,0)
     lb.BackgroundTransparency=1;lb.TextColor3=col;lb.Font=Enum.Font.SourceSansBold
     lb.TextScaled=true;lb.Text=tag;lb.BorderSizePixel=0;lb.Parent=bg
@@ -118,11 +124,11 @@ local function refreshESP()
                 local txt=o.tag
                 if S.ShowDist and LP.Character then
                     local mp=LP.Character:FindFirstChild("HumanoidRootPart")
-                    if mp and o.hrp then txt=txt.."\n"..math.floor((o.hrp.Position-mp.Position).Magnitude+0.5).."m" end
+                    if mp and o.hrp then txt=txt.."\n"..math.floor((o.hrp.Position-mp.Position).Magnitude+0.5).."m"end
                 end
                 if S.ShowHP then
                     local h2=c:FindFirstChildOfClass("Humanoid")
-                    if h2 then txt=txt.."\nHP:"..math.floor(h2.Health+0.5).."/"..math.floor(h2.MaxHealth+0.5) end
+                    if h2 then txt=txt.."\nHP:"..math.floor(h2.Health+0.5).."/"..math.floor(h2.MaxHealth+0.5)end
                 end
                 o.lb.Text=txt
             end
@@ -160,45 +166,45 @@ makeBtn()
 
 -- 粒子
 local function mkParts()
-    if not S.Enabled and not PP then return end -- 窗口没创建就不做粒子
-    if not PC then
-        local wf=nil
-        pcall(function()
-            for _,g in ipairs(C:GetChildren())do
-                if g:IsA("ScreenGui")and g.Name:find("WindUI")then
-                    for _,f in ipairs(g:GetChildren())do
-                        if f:IsA("Frame")and f.AbsoluteSize.X>700 then wf=f;break end
-                    end
+    if not PP then return end
+    if PC then return end
+    local wf=nil
+    pcall(function()
+        for _,g in ipairs(C:GetChildren())do
+            if g:IsA("ScreenGui")and g.Name:find("WindUI")then
+                for _,f in ipairs(g:GetChildren())do
+                    if f:IsA("Frame")and f.AbsoluteSize.X>700 then wf=f;break end
                 end
             end
-        end)
-        if not wf then return end
-        PC=Instance.new("Frame");PC.Size=UDim2.new(1,0,1,0);PC.BackgroundTransparency=1;PC.BorderSizePixel=0
-        PC.ClipsDescendants=true;PC.ZIndex=5;PC.Parent=wf
-        local col=S.PColor;local w=wf.AbsoluteSize.X;local h=wf.AbsoluteSize.Y
-        for i=1,50 do
-            local d=Instance.new("Frame");local sz=math.random(4,8);d.Size=UDim2.new(0,sz,0,sz)
-            d.Position=UDim2.fromOffset(math.random(10,w-10),math.random(10,h-10))
-            d.BackgroundColor3=col;d.BackgroundTransparency=0.4+math.random()*0.4;d.BorderSizePixel=0;d.ZIndex=5;d.Parent=PC
-            Instance.new("UICorner",d).CornerRadius=UDim.new(0,10)
-            local a=math.random()*6.28;local sp=0.08+math.random()*0.2
-            table.insert(PS,{F=d,Vx=math.cos(a)*sp,Vy=math.sin(a)*sp,Ph=math.random()*6.28,Sz=sz})
         end
-        PR=true
-        task.spawn(function()local t=0;while PR and PC do t=t+0.03;pcall(function()
-            local cw=PC.AbsoluteSize.X;local ch=PC.AbsoluteSize.Y
-            if cw<=0 or ch<=0 then return end
-            for _,p in ipairs(PS)do
-                if p.F and p.F.Parent then
-                    local x=p.F.Position.X.Offset+p.Vx;local y=p.F.Position.Y.Offset+p.Vy;local sz=p.F.AbsoluteSize.X
-                    if x+sz>=cw then x=cw-sz;p.Vx=-p.Vx*0.95 elseif x<0 then x=0;p.Vx=-p.Vx*0.95 end
-                    if y+sz>=ch then y=ch-sz;p.Vy=-p.Vy*0.95 elseif y<0 then y=0;p.Vy=-p.Vy*0.95 end
-                    p.F.Position=UDim2.fromOffset(x,y);p.F.BackgroundTransparency=0.4+math.sin(t*0.8+p.Ph)*0.25
-                    local bs=math.max(1,p.Sz+math.sin(t+p.Ph)*0.8);p.F.Size=UDim2.new(0,bs,0,bs)
-                end
-            end
-        end);task.wait(0.03)end end)
+    end)
+    if not wf then return end
+    PC=Instance.new("Frame");PC.Size=UDim2.new(1,0,1,0);PC.BackgroundTransparency=1;PC.BorderSizePixel=0
+    PC.ClipsDescendants=true;PC.ZIndex=5;PC.Parent=wf
+    local col=S.PColor;local w=wf.AbsoluteSize.X;local h=wf.AbsoluteSize.Y
+    if w<=0 then return end
+    for i=1,50 do
+        local d=Instance.new("Frame");local sz=math.random(4,8);d.Size=UDim2.new(0,sz,0,sz)
+        d.Position=UDim2.fromOffset(math.random(10,math.max(20,w-10)),math.random(10,math.max(20,h-10)))
+        d.BackgroundColor3=col;d.BackgroundTransparency=0.4+math.random()*0.4;d.BorderSizePixel=0;d.ZIndex=5;d.Parent=PC
+        Instance.new("UICorner",d).CornerRadius=UDim.new(0,10)
+        local a=math.random()*6.28;local sp=0.08+math.random()*0.2
+        table.insert(PS,{F=d,Vx=math.cos(a)*sp,Vy=math.sin(a)*sp,Ph=math.random()*6.28,Sz=sz})
     end
+    PR=true
+    task.spawn(function()local t=0;while PR and PC do t=t+0.03;pcall(function()
+        local cw=PC.AbsoluteSize.X;local ch=PC.AbsoluteSize.Y
+        if cw<=0 or ch<=0 then return end
+        for _,p in ipairs(PS)do
+            if p.F and p.F.Parent then
+                local x=p.F.Position.X.Offset+p.Vx;local y=p.F.Position.Y.Offset+p.Vy;local sz=p.F.AbsoluteSize.X
+                if x+sz>=cw then x=cw-sz;p.Vx=-p.Vx*0.95 elseif x<0 then x=0;p.Vx=-p.Vx*0.95 end
+                if y+sz>=ch then y=ch-sz;p.Vy=-p.Vy*0.95 elseif y<0 then y=0;p.Vy=-p.Vy*0.95 end
+                p.F.Position=UDim2.fromOffset(x,y);p.F.BackgroundTransparency=0.4+math.sin(t*0.8+p.Ph)*0.25
+                local bs=math.max(1,p.Sz+math.sin(t+p.Ph)*0.8);p.F.Size=UDim2.new(0,bs,0,bs)
+            end
+        end
+    end);task.wait(0.03)end end)
 end
 
 local function killParts()
@@ -210,7 +216,7 @@ local function upc()
     for _,p in ipairs(PS)do if p.F then p.F.BackgroundColor3=c end end
 end
 
--- 加载 WindUI
+-- WindUI
 local function gtc(n)
     if not n then return Color3.fromRGB(80,170,255)end;local l=n:lower()
     local m={dark=Color3.fromRGB(80,170,255),light=Color3.fromRGB(60,130,210),rose=Color3.fromRGB(255,130,170),plant=Color3.fromRGB(70,210,130),ocean=Color3.fromRGB(60,190,240),sunset=Color3.fromRGB(255,160,70),midnight=Color3.fromRGB(130,100,240),forest=Color3.fromRGB(60,180,90),lavender=Color3.fromRGB(190,140,255),coral=Color3.fromRGB(255,140,90),mint=Color3.fromRGB(80,230,190),sky=Color3.fromRGB(100,190,255),blood=Color3.fromRGB(230,90,80),lemon=Color3.fromRGB(230,210,70),cyber=Color3.fromRGB(0,235,210)}
@@ -229,7 +235,7 @@ end
 local ok,rv=pcall(function()return loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()end)
 if ok and rv then
     WI=rv;WI:SetTheme("Dark");S.PColor=gtc("Dark")
-    WI:Popup({Title="机场安全透视 v14.0",Icon="solar:info-square-bold",
+    WI:Popup({Title="机场安全透视 v14.1",Icon="solar:info-square-bold",
         Content="👁 NPC透视高亮+头顶标签\n🔍 Properties深度扫描分类\n⚠️ 功能默认关闭",
         Buttons={{Title="取消",Callback=function()end,Variant="Tertiary"},
             {Title="确认加载",Icon="solar:arrow-right-bold",Callback=function()
@@ -252,7 +258,6 @@ if ok and rv then
         if not ok2 or not w then return end
         WN=w
         
-        -- Tab: 主控面板
         local mt=WN:Tab({Title="主控面板",Icon="solar:slider-vertical-bold"})
         CT.ESP=mt:Toggle({Flag="ESP",Title="透视开关",Value=false,
             Callback=function(v)S.Enabled=v;refreshESP();if v then task.spawn(doScan)end end})
@@ -264,12 +269,10 @@ if ok and rv then
         mt:Divider()
         CT.RS=mt:Slider({Flag="Range",Title="最大探测距离",Step=50,Value={Min=50,Max=1000,Default=500},Width=200,IsTextbox=true,Callback=function(v)S.MaxRange=v end})
         
-        -- Tab: 功能设置
         local ft=WN:Tab({Title="功能设置",Icon="solar:settings-bold"})
         CT.EK=ft:Keybind({Flag="ESPK",Title="透视开关快捷键",Value="",Callback=function(k)KB.ESP=k end})
         CT.BK=ft:Keybind({Flag="BadK",Title="仅坏人快捷键",Value="",Callback=function(k)KB.BadOnly=k end})
         
-        -- Tab: UI设置
         local ut=WN:Tab({Title="UI设置",Icon="solar:monitor-bold"})
         CT.WK=ut:Keybind({Flag="WinK",Title="窗口开关",Value="RightShift",Callback=function(k)KB.Win=k end})
         CT.FB=ut:Toggle({Flag="FB",Title="悬浮按钮",Value=true,Callback=function(v)if FB then FB.Enabled=v end end})
@@ -282,17 +285,15 @@ if ok and rv then
         local allT={};pcall(function()allT=WI:GetThemes()end);local tn={};for n,_ in pairs(allT)do table.insert(tn,n)end;table.sort(tn)
         CT.TD=ut:Dropdown({Flag="TD",Title="选择主题",Values=tn,Value="Dark",Callback=function(sl)if sl then S.Theme=sl;WI:SetTheme(sl);S.PColor=gtc(sl);upc()end end})
         
-        -- Tab: 信息统计
         local st=WN:Tab({Title="信息统计",Icon="solar:chart-bold"})
         TE.GP=st:Paragraph({Title="🟢 好人: 0"})
         TE.BP=st:Paragraph({Title="🔴 坏人: 0"})
         TE.SP=st:Paragraph({Title="📊 总计: 0"})
         
-        -- Tab: 配置管理
         local ct=WN:Tab({Title="配置管理",Icon="solar:diskette-bold"})
         local cni=ct:Input({Flag="CN",Title="配置名称",Value="default",Icon="solar:file-text-bold",Callback=function(v)CF=v end});ct:Space()
         local CM=WN.ConfigManager;local AC={};pcall(function()AC=CM:AllConfigs()end)
-        local CF="default";local DV=nil;pcall(function()for _,v in ipairs(AC)do if v=="default"then DV="default";break end end end)
+        local DV=nil;pcall(function()for _,v in ipairs(AC)do if v=="default"then DV="default";break end end end)
         local ACD=ct:Dropdown({Title="已有配置",Values=AC,Value=DV,Callback=function(v)if v then CF=v;cni:Set(v)end end});ct:Space()
         ct:Button({Title="💾 保存",Icon="solar:check-circle-bold",Justify="Center",Color=Color3.fromHex("#305dff"),
             Callback=function()if not CM then return end;local c=CM:Config(CF);if c and c:Save()then WI:Notify({Title="✅ 已保存",Content="配置 '"..CF.."'",Duration=3,Icon="solar:check-circle-bold"});ACD:Refresh(CM:AllConfigs())end end});ct:Space()
@@ -302,18 +303,15 @@ if ok and rv then
             Callback=function()if not CM then return end;local c=CM:Config(CF);if c and c:Delete()then WI:Notify({Title="🗑️ 已删除",Content="配置 '"..CF.."'",Duration=3,Icon="solar:trash-bin-trash-bold"});ACD:Refresh(CM:AllConfigs())end end})
         task.spawn(function()task.wait(1);pcall(function()CM:CreateConfig("default",true)end);task.spawn(mkParts)end)
         
-        -- Tab: 关于
         local at=WN:Tab({Title="关于",Icon="solar:info-square-bold"})
-        at:Paragraph({Title="机场安全透视 v14.0",Desc="彻底重写: 全量扫描/标签修复/按钮修复/粒子修复"})
+        at:Paragraph({Title="机场安全透视 v14.1",Desc="彻底重写: 全量扫描/标签/按钮/粒子/清理"})
         at:Divider();at:Paragraph({Title="👤 作者",Desc="b站英吉利超入_"})
         at:Divider();at:Paragraph({Title="💡 使用",Desc=IM and"手机: 点击悬浮按钮"or"PC: RightShift打开菜单"})
         
-        -- 快捷键监听
         U.InputBegan:Connect(function(i,g)if g then return end;if i.UserInputType~=Enum.UserInputType.Keyboard then return end;local k=i.KeyCode.Name
             if KB.ESP and KB.ESP~=""and k==KB.ESP then S.Enabled=not S.Enabled;if CT.ESP then CT.ESP:Set(S.Enabled)end;refreshESP();if S.Enabled then task.spawn(doScan)end end
             if KB.BadOnly and KB.BadOnly~=""and k==KB.BadOnly then S.BadOnly=not S.BadOnly;if CT.BO then CT.BO:Set(S.BadOnly)end;refreshESP()end end)
         
-        -- 维护循环
         task.spawn(function()while true do task.wait(3);pcall(function()doScan();refreshESP();updateStats()end)end end)
     end
 else
