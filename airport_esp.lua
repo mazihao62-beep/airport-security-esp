@@ -1,6 +1,6 @@
 --[[
-    机场安全透视 v15.9
-    修复: isPC玩家检测增加CharacterAdded事件绑定
+    机场安全透视 v16.0
+    修复: 行李箱全扫描+rLBL增量刷新+dR不再装备手铐+dK清除手铐+OnClose重置WB
     功能: NPC透视+行李箱检测+自动工作(逮捕/击杀/放行)
     作者: b站英吉利超入_
 ]]
@@ -9,14 +9,10 @@ local C=game:GetService("CoreGui");local RS=game:GetService("ReplicatedStorage")
 local LP=nil;for i=1,50 do LP=P.LocalPlayer;if LP then break end;task.wait(0.1)end
 local IM=U.TouchEnabled and not U.KeyboardEnabled;if not IM then pcall(function()IM=U.TouchEnabled and not U.MouseEnabled end)end
 
--- 玩家角色集合(持续追踪,不受角色重生影响)
 local PCSet={}
 local function updatePCSet()
     for k in pairs(PCSet)do PCSet[k]=nil end
-    for _,p in ipairs(P:GetPlayers())do
-        local c=p.Character
-        if c then PCSet[c]=true end
-    end
+    for _,p in ipairs(P:GetPlayers())do local c=p.Character;if c then PCSet[c]=true end end
 end
 updatePCSet()
 P.PlayerAdded:Connect(updatePCSet)
@@ -33,12 +29,10 @@ local function cln()
 end
 cln()
 
--- 监听玩家角色事件(每个玩家加入时绑定CharacterAdded)
 P.PlayerAdded:Connect(function(pl)
     pl.CharacterAdded:Connect(function(c)PCSet[c]=true end)
     pl.CharacterRemoving:Connect(function(c)PCSet[c]=nil end)
 end)
--- 给已有玩家绑定
 for _,pl in ipairs(P:GetPlayers())do
     pl.CharacterAdded:Connect(function(c)PCSet[c]=true end)
     pl.CharacterRemoving:Connect(function(c)PCSet[c]=nil end)
@@ -129,7 +123,6 @@ end
 
 local function mNESP(c,nt)
     if not c or not c.Parent then return end
-    -- 用PCSet玩家集合检测(持续追踪,比GetPlayerFromCharacter可靠)
     if PCSet[c]then return end
     if H[c]then return end
     local hrp=c:FindFirstChild("HumanoidRootPart")or c:FindFirstChild("Torso")or c:FindFirstChildOfClass("Part");if not hrp then return end
@@ -189,6 +182,7 @@ local function doScan()
 end
 
 local function rLBL()
+    local seenPP={}
     local wsf=W:FindFirstChild("WorkspaceScriptable")
     if wsf then local sto=wsf:FindFirstChild("Storage")
         if sto then local ns=sto:FindFirstChild("NormalStorage")
@@ -197,31 +191,21 @@ local function rLBL()
                     local fw=ns:FindFirstChild(fn)
                     if fw then for _,lug in ipairs(fw:GetChildren())do
                         if lug:IsA("Model")and lug.Name=="OpenableLuggage"then local pp=glp(lug)
-                            if pp then local key=pp;local lt=cll(lug)
+                            if pp then local key=pp;seenPP[key]=true;local lt=cll(lug)
                                 if LG[key]then
                                     if LG[key].nt~=lt then
                                         LG[key].nt=lt;LG[key].tag=lt=="Dangerous"and"💣 危险行李"or(lt=="Safe"and"🧳 安全行李"or"❓ 可疑行李")
                                         if LG[key].lb then local col=lt=="Dangerous"and Color3.fromRGB(255,40,40)or(lt=="Safe"and Color3.fromRGB(0,255,80)or Color3.fromRGB(255,180,40))
                                             LG[key].lb.TextColor3=col;LG[key].lb.Text=LG[key].tag end
                                         if LG[key].hl then LG[key].hl.FillColor=col end end
-                                else mLESP(lug,lt)end end end end end end end end end
+                                else mLESP(lug,lt)end end end end end end end end
+    for key,o in pairs(LG)do if not seenPP[key]then pcall(function()if o.bb then o.bb:Destroy()end;if o.hl then o.hl:Destroy()end end);LG[key]=nil;LC=LC-1 end end
 end
 
 local function iLS()
     for _,o in pairs(LG)do pcall(function()if o.bb then o.bb:Destroy()end;if o.hl then o.hl:Destroy()end end)end
-    LG={};LC=0;LDC=0;LSC=0;local seenPP={}
-    local wsf=W:FindFirstChild("WorkspaceScriptable")
-    if wsf then local sto=wsf:FindFirstChild("Storage")
-        if sto then local ns=sto:FindFirstChild("NormalStorage")
-            if ns then
-                for _,fn in ipairs({"LuggageWorkspace","LuggageOpenWorkspace","LuggageEndWorkspace"})do
-                    local fw=ns:FindFirstChild(fn)
-                    if fw then for _,lug in ipairs(fw:GetChildren())do
-                        if lug:IsA("Model")and lug.Name=="OpenableLuggage"then local pp=glp(lug)
-                            if pp and not seenPP[pp]then seenPP[pp]=true;mLESP(lug,cll(lug))end end end end end end end end
-    if LC==0 then for _,o in ipairs(W:GetDescendants())do
-        if o:IsA("Model")and o.Name=="OpenableLuggage"and o.Parent and o.Parent:IsA("Folder")then
-            local pp=glp(o);if pp and not seenPP[pp]then seenPP[pp]=true;mLESP(o,cll(o))end end end end
+    LG={};LC=0;LDC=0;LSC=0
+    rLBL()
 end
 
 local function rESP()
@@ -258,7 +242,6 @@ local function sNN()
     table.sort(rs,function(a,b)return a.dist<b.dist end);return rs
 end
 
--- NPCArrest等事件引用
 local NPCArrest,MarkArrest,MarkSearch,ProductArrest
 pcall(function()NPCArrest=RS.Resources.Events.Client.NPCArrest end)
 pcall(function()MarkArrest=RS.Resources.Events.Client.MarkArrest end)
@@ -266,7 +249,14 @@ pcall(function()MarkSearch=RS.Resources.Events.Client.MarkSearch end)
 pcall(function()ProductArrest=RS.Resources.Events.Client.ProductArrestPlayer end)
 
 local function eF(wn)
-    if not LP then return false end;local back=LP:FindFirstChild("Backpack")
+    if not LP then return false end
+    local back=LP:FindFirstChild("Backpack")
+    if LP.Character then
+        for _,t in ipairs(LP.Character:GetChildren())do
+            if t:IsA("Tool")then pcall(function()t.Parent=back end)end
+        end
+    end
+    task.wait(0.1)
     local function fw()
         if back then for _,t in ipairs(back:GetChildren())do if t:IsA("Tool")and t.Name==wn then return t end end end
         if LP.Character then for _,t in ipairs(LP.Character:GetChildren())do if t:IsA("Tool")and t.Name==wn then return t end end end
@@ -275,8 +265,11 @@ local function eF(wn)
     local t=fw();if not t then return false end
     pcall(function()t.Parent=LP.Character end);task.wait(0.15)
     pcall(function()t:Activate()end);task.wait(0.1)
-    pcall(function()VIM:SendMouseButtonEvent(0,0,0,true,game,1)end);task.wait(0.05)
-    pcall(function()VIM:SendMouseButtonEvent(0,0,0,false,game,1)end);return true
+    for i=1,3 do
+        pcall(function()VIM:SendMouseButtonEvent(0,0,0,true,game,1)end);task.wait(0.05)
+        pcall(function()VIM:SendMouseButtonEvent(0,0,0,false,game,1)end);task.wait(0.03)
+    end
+    return true
 end
 
 local function tJ(n)
@@ -289,22 +282,28 @@ local function dA(n)
     if MarkArrest then pcall(function()MarkArrest:FireServer(n)end);task.wait(0.3)end
     if NPCArrest then pcall(function()NPCArrest:FireServer(n)end);task.wait(0.5)end
     if ProductArrest then pcall(function()ProductArrest:FireServer(n)end);task.wait(0.3)end
-    eF("Arrest");task.wait(0.5);tJ(n)
+    eF("Arrest");task.wait(0.3)
+    local back=LP:FindFirstChild("Backpack")
+    if LP.Character and back then
+        for _,t in ipairs(LP.Character:GetChildren())do
+            if t:IsA("Tool")and t.Name=="Arrest"then pcall(function()t.Parent=back end)end
+        end
+    end
+    task.wait(0.2);tJ(n)
 end
 
 local function dR(n)
     if MarkSearch then pcall(function()MarkSearch:FireServer(n)end)
         local hum=n:FindFirstChildOfClass("Humanoid");if hum then pcall(function()MarkSearch:FireServer(hum)end)end end
-    eF("Arrest");task.wait(0.2)
-    local back=LP:FindFirstChild("Backpack")
-    if back then for _,t in ipairs(back:GetChildren())do
-        if t:IsA("Tool")and t.Name=="Arrest"then pcall(function()t.Parent=LP.Character end);task.wait(0.2);pcall(function()t:Activate()end);break end end end
 end
 
 local function dK(n)
     local hum=n:FindFirstChildOfClass("Humanoid");if hum and hum.Health<=0 then return end
     for _,wn in ipairs({"MP7A1","M1911","Taser"})do if eF(wn)then break end end
-    for i=1,5 do task.wait(0.1);pcall(function()VIM:SendMouseButtonEvent(0,0,0,true,game,1)end);task.wait(0.05);pcall(function()VIM:SendMouseButtonEvent(0,0,0,false,game,1)end)end
+    for i=1,8 do task.wait(0.08)
+        pcall(function()VIM:SendMouseButtonEvent(0,0,0,true,game,1)end);task.wait(0.04)
+        pcall(function()VIM:SendMouseButtonEvent(0,0,0,false,game,1)end)
+    end
 end
 
 local function aP()
@@ -312,15 +311,18 @@ local function aP()
     if#list==0 then pcall(function()if ATE.ST then ATE.ST:Set("[空闲] 附近无NPC")end end);return end
     for _,n in ipairs(list)do
         if WB[n.model]then continue end;local b=n.isBad
-        if(mode=="Release"and not b)or((mode=="Arrest"or mode=="Kill")and not b)then continue end
+        if((mode=="Arrest"or mode=="Kill")and not b)then continue end
+        if(mode=="Release"and b)then continue end
         WB[n.model]=true;local nm=n.model.Name
         task.spawn(function()
             if b then
                 if mode=="Kill"then pcall(function()if ATE.ST then ATE.ST:Set("[击杀] "..nm)end end);dK(n.model)
                 else pcall(function()if ATE.ST then ATE.ST:Set("[逮捕] "..nm)end end);dA(n.model)
-                    if mode=="Auto"then task.wait(1);if sp(n.model)then pcall(function()if ATE.ST then ATE.ST:Set("[反击] "..nm.." 击杀")end end);dK(n.model)end end end
+                    if mode=="Auto"then task.wait(1.5)
+                        if sp(n.model)then pcall(function()if ATE.ST then ATE.ST:Set("[反击] "..nm.." 切击杀")end end);dK(n.model)
+                        else pcall(function()if ATE.ST then ATE.ST:Set("[逮捕完成] "..nm)end end)end end end
             else pcall(function()if ATE.ST then ATE.ST:Set("[放行] "..nm.." ✅")end end);dR(n.model)end
-            pcall(function()if ATE.ST then ATE.ST:Set("[完成] "..nm)end end);task.wait(1);WB[n.model]=nil
+            task.wait(3);WB[n.model]=nil
         end)
     end
 end
@@ -377,7 +379,7 @@ local function mW()
         SideBarWidth=180,ScrollBarEnabled=true,HideSearchBar=true,
         OpenButton={Title="打开透视",Scale=0.5,Enabled=true,OnlyMobile=IM,Draggable=true,
             Color=ColorSequence.new(Color3.fromRGB(0,255,100),Color3.fromRGB(0,200,255)),CornerRadius=UDim.new(1,0),StrokeThickness=3},
-        OnClose=function()S.Enabled=false;S.Luggage=false;S.AutoWork=false
+        OnClose=function()S.Enabled=false;S.Luggage=false;S.AutoWork=false;WB={}
             if CT.ESP then CT.ESP:Set(false)end;if CT.LT then CT.LT:Set(false)end;if CT.AW then CT.AW:Set(false)end;rESP();kP()end,
         OnOpen=function()if S.Particles then task.spawn(function()task.wait(0.5);mkP()end)end end})end)
     if not ok2 or not w then return end;WN=w
@@ -397,7 +399,7 @@ local function mW()
     CT.WM=awt:Dropdown({Flag="WorkMode",Title="工作模式",Values={"Arrest","Kill","Release","Auto"},Value="Arrest",Callback=function(v)S.WorkMode=v end})
     CT.WR=awt:Slider({Flag="WorkRange",Title="工作范围(米)",Step=5,Value={Min=5,Max=50,Default=20},Width=180,IsTextbox=true,Callback=function(v)S.WorkRange=v end})
     awt:Divider();ATE.ST=awt:Input({Flag="WS",Title="状态",Value="[等待启动]",Locked=true,Icon="solar:info-circle-bold"})
-    awt:Space();awt:Paragraph({Title="📋 工作说明",Desc="ContrabandReal+NPCType双通道检测"})
+    awt:Space();awt:Paragraph({Title="📋 模式说明",Desc="Arrest=逮捕犯人,Kill=击杀,Release=放行好人,Auto=逮捕+反抗则击杀"})
     local ut=WN:Tab({Title="UI设置",Icon="solar:monitor-bold"})
     CT.WK=ut:Keybind({Flag="WinK",Title="窗口开关",Value="RightShift",Callback=function(k)KB.Win=k end});ut:Divider()
     CT.PT=ut:Toggle({Flag="PT",Title="粒子背景",Value=true,Callback=function(v)S.Particles=v;if v then task.spawn(mkP)else kP()end end});ut:Divider()
@@ -417,7 +419,7 @@ local function mW()
     ct:Button({Title="🗑️ 删除",Icon="solar:trash-bin-trash-bold",Justify="Center",Color=Color3.fromHex("#ff3040"),Callback=function()if not CM then return end;local c=CM:Config(CF);if c and c:Delete()then WI:Notify({Title="🗑️ 已删除",Content="配置 '"..CF.."'",Duration=3,Icon="solar:trash-bin-trash-bold"});ACD:Refresh(CM:AllConfigs())end end})
     task.spawn(function()task.wait(1);pcall(function()CM:CreateConfig("default",true)end);task.spawn(mkP)end)
     local at=WN:Tab({Title="关于",Icon="solar:info-square-bold"})
-    at:Paragraph({Title="机场安全透视 v15.9",Desc="PCSet持续追踪,角色重生不漏"})
+    at:Paragraph({Title="机场安全透视 v16.0",Desc="全域行李扫描+自动工作优化+关闭重置"})
     at:Divider();at:Paragraph({Title="👤 作者",Desc="b站英吉利超入_"});at:Divider()
     at:Paragraph({Title="💡 使用",Desc=IM and"手机:点击悬浮按钮"or"PC:RightShift打开菜单"})
     U.InputBegan:Connect(function(i,g)if g or i.UserInputType~=Enum.UserInputType.Keyboard then return end;local k=i.KeyCode.Name
@@ -434,7 +436,7 @@ while rC<mR and not LO do
 
 if LO then
     pcall(function()WI:SetTheme("Dark")end);S.PColor=gtc("Dark")
-    WI:Popup({Title="机场安全透视 v15.9",Icon="solar:info-square-bold",
+    WI:Popup({Title="机场安全透视 v16.0",Icon="solar:info-square-bold",
         Content="👁 NPC透视\n🔴🟢 红坏人/绿好人\n🧳 行李箱检测\n🚔 自动工作\n🌀 粒子背景\n⚠️ 功能默认关闭",
         Buttons={{Title="取消",Callback=function()end,Variant="Tertiary"},
             {Title="确认加载",Icon="solar:arrow-right-bold",Callback=function()PP=true
