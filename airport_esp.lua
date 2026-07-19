@@ -1,7 +1,7 @@
 --[[
-    机场安全透视 v14.11
+    机场安全透视 v14.12
     功能: NPC透视+行李箱检测 | 纯BillboardGui
-    修复: 行李箱三行字彻底修复 — 每次扫描前先清除所有旧行李箱标签
+    修复: 行李箱标签重复 — 只扫直接子级+PP去重+扫描中去重
     作者: b站英吉利超入_
 ]]
 local P=game:GetService("Players")
@@ -83,6 +83,21 @@ local function classifyLuggage(lug)
     return"Suspicious"
 end
 
+-- 获取行李箱的PrimaryPart
+local function getLuggagePP(lug)
+    local pp=nil
+    pcall(function()pp=lug.PrimaryPart end)
+    if not pp then
+        for _,c in ipairs(lug:GetDescendants())do
+            if c:IsA("BasePart")and(c.Name=="ColorFront"or c.Name=="ColorBack"or c.Name=="HumanoidRootPart")then pp=c;break end
+        end
+    end
+    if not pp then
+        for _,c in ipairs(lug:GetDescendants())do if c:IsA("BasePart")then pp=c;break end end
+    end
+    return pp
+end
+
 local S={Enabled=false,BadOnly=false,ShowDist=false,ShowHP=false,Luggage=false,MaxRange=500,Theme="Dark",Particles=true,PColor=Color3.fromRGB(80,170,255)}
 local H={}
 local LG={}
@@ -118,22 +133,21 @@ local function makeNPC_ESP(c,nt)
     SC=SC+1;if nt=="Good"then GC=GC+1 else BC=BC+1 end
 end
 
--- 行李箱标签：使用PrimaryPart路径作为唯一key，彻底去重
 local function makeLuggage_ESP(lug,lt)
     if not lug or not lug.Parent then return end
-    local pp=nil;pcall(function()pp=lug.PrimaryPart end)
-    if not pp then for _,c in ipairs(lug:GetDescendants())do if c:IsA("BasePart")then pp=c;break end end end
+    -- 只处理名字叫OpenableLuggage的Model（过滤掉Lid/Base等子部件）
+    if lug.Name~="OpenableLuggage" then return end
+    local pp=getLuggagePP(lug)
     if not pp then return end
-    -- 用PrimaryPart作为唯一标识符，确保同一物理行李只有一个标签
+    -- 同一个PrimaryPart只创建一个标签
     local key=pp
     if LG[key]then
-        -- 更新类型（可能从Safe变成Dangerous）
         if LG[key].nt~=lt then
-            LG[key].nt=lt
-            local col=lt=="Dangerous"and Color3.fromRGB(255,40,40)or(lt=="Safe"and Color3.fromRGB(0,255,80)or Color3.fromRGB(255,180,40))
-            local tag=lt=="Dangerous"and"💣 危险行李"or(lt=="Safe"and"🧳 安全行李"or"❓ 可疑行李")
-            LG[key].tag=tag
-            if LG[key].lb then LG[key].lb.TextColor3=col;LG[key].lb.Text=tag end
+            LG[key].nt=lt;LG[key].tag=lt=="Dangerous"and"💣 危险行李"or(lt=="Safe"and"🧳 安全行李"or"❓ 可疑行李")
+            if LG[key].lb then
+                local col=lt=="Dangerous"and Color3.fromRGB(255,40,40)or(lt=="Safe"and Color3.fromRGB(0,255,80)or Color3.fromRGB(255,180,40))
+                LG[key].lb.TextColor3=col;LG[key].lb.Text=LG[key].tag
+            end
         end
         return
     end
@@ -170,17 +184,17 @@ local function doScan()
     end
 end
 
--- 先清除所有旧的行李箱标签，再重新扫描
+-- 行李箱扫描：只扫直接子级+PrimaryPart去重
 local function rescanLuggage()
     -- 清理旧标签
     for _,o in pairs(LG)do
         pcall(function()if o.bb then o.bb:Destroy()end end)
     end
-    LG={}
-    LC=0;LDC=0;LSC=0
+    LG={};LC=0;LDC=0;LSC=0
     
-    -- 重新扫描
-    local seen={}
+    -- 同一轮扫描中看到的PrimaryPart集合，防止一轮扫描内有重复
+    local seenPP={}
+    
     local wsf=W:FindFirstChild("WorkspaceScriptable")
     if wsf then
         local sto=wsf:FindFirstChild("Storage")
@@ -190,10 +204,14 @@ local function rescanLuggage()
                 for _,fn in ipairs({"LuggageWorkspace","LuggageOpenWorkspace","LuggageEndWorkspace"})do
                     local fw=ns:FindFirstChild(fn)
                     if fw then
-                        for _,lug in ipairs(fw:GetDescendants())do
-                            if lug:IsA("Model")and not seen[lug]then
-                                seen[lug]=true
-                                local lt=classifyLuggage(lug);makeLuggage_ESP(lug,lt)
+                        -- 只扫直接子级，不要GetDescendants（会扫到Lid/Base等子部件）
+                        for _,lug in ipairs(fw:GetChildren())do
+                            if lug:IsA("Model")and lug.Name=="OpenableLuggage"then
+                                local pp=getLuggagePP(lug)
+                                if pp and not seenPP[pp]then
+                                    seenPP[pp]=true
+                                    local lt=classifyLuggage(lug);makeLuggage_ESP(lug,lt)
+                                end
                             end
                         end
                     end
@@ -201,11 +219,15 @@ local function rescanLuggage()
             end
         end
     end
-    if #LG==0 then
+    -- 备选：如果上面没找到，搜OpenableLuggage名字的Model
+    if LC==0 then
         for _,o in ipairs(W:GetDescendants())do
-            if o:IsA("Model")and o.Name=="OpenableLuggage"and not seen[o]then
-                seen[o]=true
-                local lt=classifyLuggage(o);makeLuggage_ESP(o,lt)
+            if o:IsA("Model")and o.Name=="OpenableLuggage"and o.Parent and o.Parent:IsA("Folder")then
+                local pp=getLuggagePP(o)
+                if pp and not seenPP[pp]then
+                    seenPP[pp]=true
+                    local lt=classifyLuggage(o);makeLuggage_ESP(o,lt)
+                end
             end
         end
     end
@@ -341,7 +363,6 @@ local function makeWindow()
             if v then
                 task.spawn(rescanLuggage)
             else
-                -- 关闭时清除所有行李箱标签
                 for _,o in pairs(LG)do pcall(function()if o.bb then o.bb:Destroy()end end)end
                 LG={};LC=0;LDC=0;LSC=0
             end
@@ -389,7 +410,7 @@ local function makeWindow()
     task.spawn(function()task.wait(1);pcall(function()CM:CreateConfig("default",true)end);task.spawn(mkParts)end)
     
     local at=WN:Tab({Title="关于",Icon="solar:info-square-bold"})
-    at:Paragraph({Title="机场安全透视 v14.11",Desc="行李箱快速消失+三轮次标签修复"})
+    at:Paragraph({Title="机场安全透视 v14.12",Desc="行李箱标签彻底去重"})
     at:Divider();at:Paragraph({Title="👤 作者",Desc="b站英吉利超入_"})
     at:Divider();at:Paragraph({Title="💡 使用",Desc=IM and"手机: 点击悬浮按钮"or"PC: RightShift打开菜单"})
     
@@ -403,8 +424,8 @@ end
 local ok,rv=pcall(function()return loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()end)
 if ok and rv then
     WI=rv;WI:SetTheme("Dark");S.PColor=gtc("Dark")
-    WI:Popup({Title="机场安全透视 v14.11",Icon="solar:info-square-bold",
-        Content="👁 NPC透视+分类\n🧳 行李箱快速去重检测\n🌀 粒子Scale永不卡边\n⚠️ 功能默认关闭",
+    WI:Popup({Title="机场安全透视 v14.12",Icon="solar:info-square-bold",
+        Content="👁 NPC透视+分类\n🧳 行李箱检测(彻底去重)\n🌀 粒子Scale永不卡边\n⚠️ 功能默认关闭",
         Buttons={{Title="取消",Callback=function()end,Variant="Tertiary"},
             {Title="确认加载",Icon="solar:arrow-right-bold",Callback=function()
                 PP=true
