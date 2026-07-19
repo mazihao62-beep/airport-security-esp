@@ -1,7 +1,7 @@
 --[[
-    机场安全透视 v14.8
-    功能: NPC透视+行李箱检测 | 彻底移除Highlight已用BillboardGui
-    修复: 零重叠（不和游戏Xray冲突）
+    机场安全透视 v14.9
+    功能: NPC透视+行李箱检测 | 纯BillboardGui
+    修复: 粒子用Scale坐标永不卡边界 + 回调直接刷新颜色
     作者: b站英吉利超入_
 ]]
 local P=game:GetService("Players")
@@ -89,7 +89,7 @@ local LG={}
 local GC=0;local BC=0;local LC=0;local LDC=0;local LSC=0;local SC=0
 local WN=nil;local WI=nil;local PC=nil;local CT={};local KB={};local TE={};local PS={};local PR=false;local PP=false;local CF="default"
 
--- 只用BillboardGui，不用Highlight
+-- NPC 头顶标签（纯BillboardGui，无Highlight）
 local function makeNPC_ESP(c,nt)
     if not c or not c.Parent then return end
     for _,p in ipairs(P:GetPlayers())do if p.Character==c then return end end
@@ -228,38 +228,51 @@ local function updateStats()
     end)
 end
 
+-- 粒子系统：用Scale坐标（0~1范围），永不卡边界
+local function updateParticleColors()
+    local col=S.PColor
+    for _,p in ipairs(PS)do
+        if p.F and p.F.Parent then
+            p.F.BackgroundColor3=col
+        end
+    end
+end
+
 local function mkParts()
     if not PP then return end
     if PC then return end
     task.wait(0.5)
     local sg=Instance.new("ScreenGui");sg.Name="ESP_Particles";sg.ResetOnSpawn=false
     sg.DisplayOrder=999999;sg.IgnoreGuiInset=true;sg.Parent=C
-    PC=Instance.new("Frame");PC.Size=UDim2.new(1,0,1,0);PC.BackgroundTransparency=1;PC.BorderSizePixel=0;PC.Active=false;PC.Parent=sg
-    local col=S.PColor;local vp=W.CurrentCamera.ViewportSize;local w=vp.X;local h=vp.Y
-    if w<=0 or h<=0 then w=1280;h=720 end
-    local mx,my=w*0.25,h*0.1;local MW,MH=w*0.75,h*0.85
+    PC=Instance.new("Frame");PC.Size=UDim2.new(1,0,1,0);PC.BackgroundTransparency=1
+    PC.BorderSizePixel=0;PC.Active=false;PC.Parent=sg
+    local col=S.PColor
     for i=1,50 do
         local d=Instance.new("Frame");local sz=math.random(5,10);d.Size=UDim2.new(0,sz,0,sz)
-        d.Position=UDim2.fromOffset(math.random(mx,MW),math.random(my,MH))
+        -- 用Scale坐标（0.2~0.8范围），永远在容器内部
+        local sx=0.2+math.random()*0.6;local sy=0.2+math.random()*0.6
+        d.Position=UDim2.new(sx,0,sy,0)
         d.BackgroundColor3=col;d.BackgroundTransparency=0.3+math.random()*0.5;d.BorderSizePixel=0;d.Parent=PC
         Instance.new("UICorner",d).CornerRadius=UDim.new(0,10)
-        local a=math.random()*6.28;local sp=0.08+math.random()*0.2
-        table.insert(PS,{F=d,Vx=math.cos(a)*sp,Vy=math.sin(a)*sp,Ph=math.random()*6.28,Sz=sz})
+        local a=math.random()*6.28;local sp=0.0008+math.random()*0.002 -- Scale/帧速度
+        table.insert(PS,{F=d,Sx=sx,Sy=sy,Vx=math.cos(a)*sp,Vy=math.sin(a)*sp,Ph=math.random()*6.28,Sz=sz})
     end
     PR=true
     task.spawn(function()
         local t=0
         while PR and PC do t=t+0.03
             pcall(function()
-                local cw=PC.AbsoluteSize.X;local ch=PC.AbsoluteSize.Y
-                if cw<=0 or ch<=0 then return end
                 local curCol=S.PColor
                 for _,p in ipairs(PS)do
                     if p.F and p.F.Parent then
-                        local x=p.F.Position.X.Offset+p.Vx;local y=p.F.Position.Y.Offset+p.Vy;local sz=p.F.AbsoluteSize.X
-                        if x+sz>=cw then x=cw-sz;p.Vx=-p.Vx*0.95 elseif x<0 then x=0;p.Vx=-p.Vx*0.95 end
-                        if y+sz>=ch then y=ch-sz;p.Vy=-p.Vy*0.95 elseif y<0 then y=0;p.Vy=-p.Vy*0.95 end
-                        p.F.Position=UDim2.fromOffset(x,y)
+                        local sx=math.max(0.05,math.min(0.95,p.Sx+p.Vx))
+                        local sy=math.max(0.05,math.min(0.95,p.Sy+p.Vy))
+                        -- 如果被边界限制，说明撞墙了→反弹
+                        if sx>=0.95 or sx<=0.05 then p.Vx=-p.Vx end
+                        if sy>=0.95 or sy<=0.05 then p.Vy=-p.Vy end
+                        p.Sx=sx;p.Sy=sy
+                        p.F.Position=UDim2.new(sx,0,sy,0)
+                        -- 颜色每帧跟踪S.PColor
                         if curCol~=p.F.BackgroundColor3 then p.F.BackgroundColor3=curCol end
                         p.F.BackgroundTransparency=0.3+math.sin(t*0.8+p.Ph)*0.4
                         local bs=math.max(2,p.Sz+math.sin(t+p.Ph)*1.5);p.F.Size=UDim2.new(0,bs,0,bs)
@@ -334,6 +347,8 @@ local function makeWindow()
     CT.TD=ut:Dropdown({Flag="TD",Title="选择主题",Values=tn,Value="Dark",
         Callback=function(sl)if sl and type(sl)=="string"then
             S.Theme=sl;WI:SetTheme(sl);S.PColor=gtc(sl)
+            -- 立即刷新所有粒子颜色
+            updateParticleColors()
         end end})
     
     local st=WN:Tab({Title="信息统计",Icon="solar:chart-bold"})
@@ -354,7 +369,7 @@ local function makeWindow()
     task.spawn(function()task.wait(1);pcall(function()CM:CreateConfig("default",true)end);task.spawn(mkParts)end)
     
     local at=WN:Tab({Title="关于",Icon="solar:info-square-bold"})
-    at:Paragraph({Title="机场安全透视 v14.8",Desc="纯BillboardGui零重叠"})
+    at:Paragraph({Title="机场安全透视 v14.9",Desc="粒子Scale坐标+回调直接刷新颜色"})
     at:Divider();at:Paragraph({Title="👤 作者",Desc="b站英吉利超入_"})
     at:Divider();at:Paragraph({Title="💡 使用",Desc=IM and"手机: 点击悬浮按钮"or"PC: RightShift打开菜单"})
     
@@ -368,8 +383,8 @@ end
 local ok,rv=pcall(function()return loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()end)
 if ok and rv then
     WI=rv;WI:SetTheme("Dark");S.PColor=gtc("Dark")
-    WI:Popup({Title="机场安全透视 v14.8",Icon="solar:info-square-bold",
-        Content="👁 NPC透视+分类\n🧳 行李Contraband检测\n📛 纯BillboardGui零Highlight重叠\n⚠️ 功能默认关闭",
+    WI:Popup({Title="机场安全透视 v14.9",Icon="solar:info-square-bold",
+        Content="👁 NPC透视+分类\n🧳 行李Contraband检测\n📛 纯BillboardGui无重叠\n🌀 粒子Scale坐标永不卡边\n⚠️ 功能默认关闭",
         Buttons={{Title="取消",Callback=function()end,Variant="Tertiary"},
             {Title="确认加载",Icon="solar:arrow-right-bold",Callback=function()
                 PP=true
