@@ -1,7 +1,7 @@
 --[[
-    机场安全透视 v14.1
+    机场安全透视 v14.2
     功能: NPC透视+头顶标签+分类+快捷键+配置保存
-    修复: 清理保留WindUI/全量扫描/标签显示/按钮可用/粒子正常
+    修复: 递归scanProps/S.Particles缺失/BB.MaxDistance
     作者: b站英吉利超入_
 ]]
 local P=game:GetService("Players")
@@ -12,7 +12,6 @@ local LP=P.LocalPlayer
 local IM=U.TouchEnabled and not U.KeyboardEnabled
 if not IM then pcall(function()IM=U.TouchEnabled and not U.MouseEnabled end)end
 
--- 精准清理: 只清自己的,保留WindUI
 local function clean()
     for _,g in ipairs(C:GetChildren())do
         if g:IsA("ScreenGui")then
@@ -23,15 +22,28 @@ local function clean()
 end
 clean()
 
+-- 递归搜索Properties内部(Configuration/Folder嵌套)
+local function rFind(inst,name)
+    local f=inst:FindFirstChild(name)
+    if f then return f end
+    for _,c in ipairs(inst:GetChildren())do
+        if c:IsA("Configuration")or c:IsA("Folder")then
+            local r=rFind(c,name)
+            if r then return r end
+        end
+    end
+    return nil
+end
+
 local function scanProps(m)
     if not m then return nil end
     local pr=m:FindFirstChild("Properties")
     if not pr then return nil end
-    local sv=pr:FindFirstChild("StatusVariables")
-    if sv then local h=sv:FindFirstChild("Hostile");if h and h:IsA("BoolValue")and h.Value then return true end end
-    local rv=pr:FindFirstChild("RandomVariables")
-    if rv then local c=rv:FindFirstChild("ContrabandReal");if c and c:IsA("BoolValue")and c.Value then return true end
-        local f=rv:FindFirstChild("FakePassport");if f and f:IsA("BoolValue")and f.Value then return true end end
+    local sv=rFind(pr,"StatusVariables")
+    if sv then local h=rFind(sv,"Hostile");if h and h:IsA("BoolValue")and h.Value then return true end end
+    local rv=rFind(pr,"RandomVariables")
+    if rv then local c=rFind(rv,"ContrabandReal");if c and c:IsA("BoolValue")and c.Value then return true end
+        local f=rFind(rv,"FakePassport");if f and f:IsA("BoolValue")and f.Value then return true end end
     return nil
 end
 
@@ -58,7 +70,7 @@ local function classify(c)
     return"Good"
 end
 
-local S={Enabled=false,BadOnly=false,ShowDist=false,ShowHP=false,MaxRange=500,Theme="Dark",PColor=Color3.fromRGB(80,170,255)}
+local S={Enabled=false,BadOnly=false,ShowDist=false,ShowHP=false,MaxRange=500,Theme="Dark",Particles=true,PColor=Color3.fromRGB(80,170,255)}
 local H={}
 local GC=0;local BC=0;local SC=0
 local WN=nil;local WI=nil;local FB=nil;local PC=nil;local CT={};local KB={};local TE={};local PS={};local PR=false;local PP=false;local CF="default"
@@ -80,7 +92,7 @@ local function makeESP(c,nt)
     hl.Enabled=S.Enabled and(not S.BadOnly or nt=="Bad");hl.Parent=C
     local head=c:FindFirstChild("Head")or hrp
     local bb=Instance.new("BillboardGui");bb.Adornee=head;bb.Size=UDim2.new(0,200,0,50)
-    bb.StudsOffset=Vector3.new(0,3,0);bb.AlwaysOnTop=true;bb.MaxDistance=500
+    bb.StudsOffset=Vector3.new(0,3,0);bb.AlwaysOnTop=true;bb.MaxDistance=S.MaxRange
     bb.Enabled=S.Enabled and(not S.BadOnly or nt=="Bad");bb.Parent=C
     local bg=Instance.new("Frame");bg.Size=UDim2.new(1,0,1,0);bg.BackgroundColor3=Color3.fromRGB(0,0,0)
     bg.BackgroundTransparency=0.7;bg.BorderSizePixel=0;bg.Parent=bb
@@ -235,8 +247,8 @@ end
 local ok,rv=pcall(function()return loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()end)
 if ok and rv then
     WI=rv;WI:SetTheme("Dark");S.PColor=gtc("Dark")
-    WI:Popup({Title="机场安全透视 v14.1",Icon="solar:info-square-bold",
-        Content="👁 NPC透视高亮+头顶标签\n🔍 Properties深度扫描分类\n⚠️ 功能默认关闭",
+    WI:Popup({Title="机场安全透视 v14.2",Icon="solar:info-square-bold",
+        Content="👁 NPC透视高亮+头顶标签\n🔍 递归Properties深度扫描分类\n⚠️ 功能默认关闭",
         Buttons={{Title="取消",Callback=function()end,Variant="Tertiary"},
             {Title="确认加载",Icon="solar:arrow-right-bold",Callback=function()
                 PP=true
@@ -304,7 +316,7 @@ if ok and rv then
         task.spawn(function()task.wait(1);pcall(function()CM:CreateConfig("default",true)end);task.spawn(mkParts)end)
         
         local at=WN:Tab({Title="关于",Icon="solar:info-square-bold"})
-        at:Paragraph({Title="机场安全透视 v14.1",Desc="彻底重写: 全量扫描/标签/按钮/粒子/清理"})
+        at:Paragraph({Title="机场安全透视 v14.2",Desc="递归scanProps/粒子OnOpen/BB.MaxDistance"})
         at:Divider();at:Paragraph({Title="👤 作者",Desc="b站英吉利超入_"})
         at:Divider();at:Paragraph({Title="💡 使用",Desc=IM and"手机: 点击悬浮按钮"or"PC: RightShift打开菜单"})
         
