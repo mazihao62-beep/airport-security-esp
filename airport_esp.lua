@@ -1,4 +1,8 @@
--- 局部修正clean函数并加入周期行李箱重扫
+--[[
+    机场安全透视 v15.5
+    修复: 行李箱自动刷新 + clean()字符串方法
+    作者: b站英吉利超入_
+]]
 local P=game:GetService("Players");local U=game:GetService("UserInputService");local W=game:GetService("Workspace");local C=game:GetService("CoreGui");local RS=game:GetService("ReplicatedStorage");local VIM=game:GetService("VirtualInputManager")
 local LP=P.LocalPlayer;local IM=U.TouchEnabled and not U.KeyboardEnabled
 if not IM then pcall(function()IM=U.TouchEnabled and not U.MouseEnabled end)end
@@ -52,14 +56,13 @@ ct:Button({Title="💾 保存",Icon="solar:check-circle-bold",Justify="Center",C
 ct:Button({Title="📂 加载",Icon="solar:refresh-circle-bold",Justify="Center",Color=Color3.fromHex("#10C550"),Callback=function()if not CM then return end;local c=CM:CreateConfig(CF,false);if c and c:Load()then WI:Notify({Title="✅ 已加载",Content="配置'"..CF.."'",Duration=3,Icon="solar:refresh-circle-bold"})end end});ct:Space()
 ct:Button({Title="🗑️ 删除",Icon="solar:trash-bin-trash-bold",Justify="Center",Color=Color3.fromHex("#ff3040"),Callback=function()if not CM then return end;local c=CM:Config(CF);if c and c:Delete()then WI:Notify({Title="🗑️ 已删除",Content="配置'"..CF.."'",Duration=3,Icon="solar:trash-bin-trash-bold"});ACD:Refresh(CM:AllConfigs())end end})
 task.spawn(function()task.wait(1);pcall(function()CM:CreateConfig("default",true)end);task.spawn(mkParts)end)
-local at=WN:Tab({Title="关于",Icon="solar:info-square-bold"});at:Paragraph({Title="机场安全透视 v15.4",Desc="行李箱自动检测"});at:Divider();at:Paragraph({Title="👤 作者",Desc="b站英吉利超入_"});at:Divider();at:Paragraph({Title="💡 使用",Desc=IM and"手机:点击悬浮按钮"or"PC:RightShift打开菜单"})
+local at=WN:Tab({Title="关于",Icon="solar:info-square-bold"});at:Paragraph({Title="机场安全透视 v15.5",Desc="行李箱自动刷新"});at:Divider();at:Paragraph({Title="👤 作者",Desc="b站英吉利超入_"});at:Divider();at:Paragraph({Title="💡 使用",Desc=IM and"手机:点击悬浮按钮"or"PC:RightShift打开菜单"})
 U.InputBegan:Connect(function(i,g)if g then return end;if i.UserInputType~=Enum.UserInputType.Keyboard then return end;local k=i.KeyCode.Name;if KB.ESP and KB.ESP~=""and k==KB.ESP then S.Enabled=not S.Enabled;if CT.ESP then CT.ESP:Set(S.Enabled)end;refreshESP();if S.Enabled then task.spawn(doScan)end end;if KB.BadOnly and KB.BadOnly~=""and k==KB.BadOnly then S.BadOnly=not S.BadOnly;if CT.BO then CT.BO:Set(S.BadOnly)end;refreshESP()end end)
--- 主循环:每3秒扫NPC，每5秒扫行李箱
 local function mainLoop()while true do task.wait(3);pcall(function()doScan();refreshESP();updateStats()end);task.wait(2);pcall(function()if S.Luggage then rescanLuggage()end;updateStats()end)end end
 task.spawn(mainLoop);task.spawn(startAutoWorkLoop)
 end
 local retryCount=0;local maxRetries=3;local loaded=false
 while retryCount<maxRetries and not loaded do local ok,rv=pcall(function()return loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()end);if ok and rv then WI=rv;loaded=true else retryCount=retryCount+1;if retryCount<maxRetries then task.wait(1)end end end
-if loaded then pcall(function()WI:SetTheme("Dark")end);S.PColor=gtc("Dark");WI:Popup({Title="机场安全透视 v15.4",Icon="solar:info-square-bold",Content="👁 NPC透视\n🔴🟢 红坏人/绿好人\n🧳 行李箱检测(自动刷新)\n🚔 智能检查:逮捕/击杀/放行/全自动\n🌀 粒子背景\n⚠️ 功能默认关闭",Buttons={{Title="取消",Callback=function()end,Variant="Tertiary"},{Title="确认加载",Icon="solar:arrow-right-bold",Callback=function()PP=true;WI:Notify({Title="✅ 已加载",Content="按RightShift打开菜单",Duration=4,Icon="solar:bell-bold"});task.spawn(makeWindow)end,Variant="Primary"}}})
+if loaded then pcall(function()WI:SetTheme("Dark")end);S.PColor=gtc("Dark");WI:Popup({Title="机场安全透视 v15.5",Icon="solar:info-square-bold",Content="👁 NPC透视\n🔴🟢 红坏人/绿好人\n🧳 行李箱检测(自动刷新)\n🚔 智能检查:逮捕/击杀/放行/全自动\n🌀 粒子背景\n⚠️ 功能默认关闭",Buttons={{Title="取消",Callback=function()end,Variant="Tertiary"},{Title="确认加载",Icon="solar:arrow-right-bold",Callback=function()PP=true;WI:Notify({Title="✅ 已加载",Content="按RightShift打开菜单",Duration=4,Icon="solar:bell-bold"});task.spawn(makeWindow)end,Variant="Primary"}}})
  while not PP do task.wait(0.5)end
 else local msg=Instance.new("Message");msg.Text="⚠️ WindUI加载失败(已重试"..maxRetries.."次)";msg.Parent=W;task.delay(4,function()msg:Destroy()end)end
