@@ -1,17 +1,56 @@
 --[[
-    机场安全透视 v14.6
+    机场安全透视 v14.7
     功能: NPC透视+头顶标签+分类+快捷键+配置保存+行李箱检测
-    修复: 粒子独立ScreenGui+DisplayOrder 999999
-    新增: Properties>Contraband 行李箱检测
+    修复: 禁用游戏XrayVisual避免重叠 + 粒子颜色直接读写不再依赖回调
     作者: b站英吉利超入_
 ]]
 local P=game:GetService("Players")
 local U=game:GetService("UserInputService")
 local W=game:GetService("Workspace")
 local C=game:GetService("CoreGui")
+local PG=game:GetService("StarterGui")
 local LP=P.LocalPlayer
 local IM=U.TouchEnabled and not U.KeyboardEnabled
 if not IM then pcall(function()IM=U.TouchEnabled and not U.MouseEnabled end)end
+
+-- 游戏自带Xray系统控制
+local function disableGameXray()
+    -- PlayerGui.XrayVisual (游戏源码的透视系统)
+    if LP then
+        local plg=LP:FindFirstChild("PlayerGui")
+        if plg then
+            local xv=plg:FindFirstChild("XrayVisual")
+            if xv then xv.Enabled=false end
+        end
+    end
+    -- 搜索所有名含Xray的ScreenGui
+    for _,g in ipairs(C:GetChildren())do
+        if g:IsA("ScreenGui")and g.Name:find("Xray")then
+            g.Enabled=false
+        end
+    end
+    -- 移除NPC上游戏自带的Highlight
+    for _,o in ipairs(W:GetDescendants())do
+        if o:IsA("Highlight")and o.Name:find("Xray")and o.Parent==C then
+            o.Enabled=false
+        end
+    end
+end
+
+local function enableGameXray()
+    if LP then
+        local plg=LP:FindFirstChild("PlayerGui")
+        if plg then
+            local xv=plg:FindFirstChild("XrayVisual")
+            if xv then xv.Enabled=true end
+        end
+    end
+    for _,g in ipairs(C:GetChildren())do
+        if g:IsA("ScreenGui")and g.Name:find("Xray")then
+            g.Enabled=true
+        end
+    end
+end
 
 local function clean()
     local wc=0
@@ -107,10 +146,10 @@ local function makeESP(c,nt)
     hl.Enabled=S.Enabled and(not S.BadOnly or nt=="Bad");hl.Parent=C
     local head=c:FindFirstChild("Head")or hrp
     local bb=Instance.new("BillboardGui");bb.Adornee=head;bb.Size=UDim2.new(0,200,0,50)
-    bb.StudsOffset=Vector3.new(0,3,0);bb.AlwaysOnTop=true;bb.MaxDistance=S.MaxRange
+    bb.StudsOffset=Vector3.new(0,4.5,0);bb.AlwaysOnTop=true;bb.MaxDistance=S.MaxRange
     bb.Enabled=S.Enabled and(not S.BadOnly or nt=="Bad");bb.Parent=C
     local bg=Instance.new("Frame");bg.Size=UDim2.new(1,0,1,0);bg.BackgroundColor3=Color3.fromRGB(0,0,0)
-    bg.BackgroundTransparency=0.7;bg.BorderSizePixel=0;bg.Parent=bb
+    bg.BackgroundTransparency=0.6;bg.BorderSizePixel=0;bg.Parent=bb
     Instance.new("UICorner",bg).CornerRadius=UDim.new(0,6)
     local lb=Instance.new("TextLabel");lb.Size=UDim2.new(1,-4,1,0);lb.Position=UDim2.new(0,2,0,0)
     lb.BackgroundTransparency=1;lb.TextColor3=col;lb.Font=Enum.Font.SourceSansBold
@@ -122,21 +161,21 @@ end
 local function makeLuggageESP(lug,lt)
     if not lug or not lug.Parent then return end
     if LG[lug]then return end
-    local pp="nil";pcall(function()pp=lug.PrimaryPart end)
-    if not pp or pp=="nil"then
+    local pp=nil;pcall(function()pp=lug.PrimaryPart end)
+    if not pp then
         for _,c in ipairs(lug:GetDescendants())do if c:IsA("BasePart")then pp=c;break end end
     end
-    if not pp or pp=="nil"then return end
+    if not pp then return end
     local col=lt=="Dangerous"and Color3.fromRGB(255,40,40)or(lt=="Safe"and Color3.fromRGB(0,255,80)or Color3.fromRGB(255,180,40))
     local tag=lt=="Dangerous"and"💣 危险行李"or(lt=="Safe"and"🧳 安全行李"or"❓ 可疑行李")
     local hl=Instance.new("Highlight");hl.Adornee=lug;hl.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop
     hl.FillTransparency=0.15;hl.OutlineTransparency=0;hl.FillColor=col;hl.OutlineColor=Color3.fromRGB(255,255,255)
     hl.Enabled=S.Luggage;hl.Parent=C
     local bb=Instance.new("BillboardGui");bb.Adornee=pp;bb.Size=UDim2.new(0,200,0,50)
-    bb.StudsOffset=Vector3.new(0,2,0);bb.AlwaysOnTop=true;bb.MaxDistance=S.MaxRange
+    bb.StudsOffset=Vector3.new(0,3.5,0);bb.AlwaysOnTop=true;bb.MaxDistance=S.MaxRange
     bb.Enabled=S.Luggage;bb.Parent=C
     local bg=Instance.new("Frame");bg.Size=UDim2.new(1,0,1,0);bg.BackgroundColor3=Color3.fromRGB(0,0,0)
-    bg.BackgroundTransparency=0.7;bg.BorderSizePixel=0;bg.Parent=bb
+    bg.BackgroundTransparency=0.6;bg.BorderSizePixel=0;bg.Parent=bb
     Instance.new("UICorner",bg).CornerRadius=UDim.new(0,6)
     local lb=Instance.new("TextLabel");lb.Size=UDim2.new(1,-4,1,0);lb.Position=UDim2.new(0,2,0,0)
     lb.BackgroundTransparency=1;lb.TextColor3=col;lb.Font=Enum.Font.SourceSansBold
@@ -256,12 +295,16 @@ local function mkParts()
             pcall(function()
                 local cw=PC.AbsoluteSize.X;local ch=PC.AbsoluteSize.Y
                 if cw<=0 or ch<=0 then return end
+                local curCol=S.PColor
                 for _,p in ipairs(PS)do
                     if p.F and p.F.Parent then
                         local x=p.F.Position.X.Offset+p.Vx;local y=p.F.Position.Y.Offset+p.Vy;local sz=p.F.AbsoluteSize.X
                         if x+sz>=cw then x=cw-sz;p.Vx=-p.Vx*0.95 elseif x<0 then x=0;p.Vx=-p.Vx*0.95 end
                         if y+sz>=ch then y=ch-sz;p.Vy=-p.Vy*0.95 elseif y<0 then y=0;p.Vy=-p.Vy*0.95 end
-                        p.F.Position=UDim2.fromOffset(x,y);p.F.BackgroundTransparency=0.3+math.sin(t*0.8+p.Ph)*0.4
+                        p.F.Position=UDim2.fromOffset(x,y)
+                        -- 每帧检查颜色是否变化，直接跟踪S.PColor
+                        if curCol~=p.F.BackgroundColor3 then p.F.BackgroundColor3=curCol end
+                        p.F.BackgroundTransparency=0.3+math.sin(t*0.8+p.Ph)*0.4
                         local bs=math.max(2,p.Sz+math.sin(t+p.Ph)*1.5);p.F.Size=UDim2.new(0,bs,0,bs)
                     end
                 end
@@ -273,11 +316,6 @@ end
 
 local function killParts()
     PR=false;if PC then pcall(function()local p=PC.Parent;if p then p:Destroy()end end);PC=nil end;PS={}
-end
-
-local function upc()
-    local c=S.PColor;if not c or #PS==0 then return end
-    for _,p in ipairs(PS)do if p.F then p.F.BackgroundColor3=c end end
 end
 
 local function gtc(n)
@@ -304,7 +342,7 @@ local function makeWindow()
         OpenButton={Title="打开透视",Scale=0.5,Enabled=true,OnlyMobile=IM,Draggable=true,
             Color=ColorSequence.new(Color3.fromRGB(0,255,100),Color3.fromRGB(0,200,255)),
             CornerRadius=UDim.new(1,0),StrokeThickness=3},
-        OnClose=function()S.Enabled=false;if CT.ESP then CT.ESP:Set(false)end;refreshESP();killParts()end,
+        OnClose=function()S.Enabled=false;S.Luggage=false;if CT.ESP then CT.ESP:Set(false)end;if CT.LT then CT.LT:Set(false)end;refreshESP();enableGameXray();killParts()end,
         OnOpen=function()if S.Particles then task.spawn(function()task.wait(0.5);mkParts()end)end end
     })end)
     if not ok2 or not w then return end
@@ -312,7 +350,7 @@ local function makeWindow()
     
     local mt=WN:Tab({Title="主控面板",Icon="solar:slider-vertical-bold"})
     CT.ESP=mt:Toggle({Flag="ESP",Title="透视开关",Value=false,
-        Callback=function(v)S.Enabled=v;refreshESP();if v then task.spawn(doScan)end end})
+        Callback=function(v)S.Enabled=v;if v then disableGameXray()else enableGameXray()end;refreshESP();if v then task.spawn(doScan)end end})
     CT.BO=mt:Toggle({Flag="BadOnly",Title="仅显示坏人",Value=false,Callback=function(v)S.BadOnly=v;refreshESP()end})
     mt:Divider()
     CT.LT=mt:Toggle({Flag="Luggage",Title="🧳 行李箱检测",Value=false,
@@ -336,7 +374,11 @@ local function makeWindow()
     CT.TT=ut:Toggle({Flag="TT",Title="透明背景(Transparent)",Value=true,Callback=function(v)pcall(function()if WN then pcall(function()WN:ToggleTransparency(v)end)end end)end})
     ut:Divider()
     local allT={};pcall(function()allT=WI:GetThemes()end);local tn={};for n,_ in pairs(allT)do table.insert(tn,n)end;table.sort(tn)
-    CT.TD=ut:Dropdown({Flag="TD",Title="选择主题",Values=tn,Value="Dark",Callback=function(sl)if sl then S.Theme=sl;WI:SetTheme(sl);S.PColor=gtc(sl);upc()end end})
+    CT.TD=ut:Dropdown({Flag="TD",Title="选择主题",Values=tn,Value="Dark",
+        Callback=function(sl)if sl and type(sl)=="string"then
+            S.Theme=sl;WI:SetTheme(sl);S.PColor=gtc(sl)
+            -- 粒子颜色直接在动画循环中从S.PColor读取，每帧自动更新
+        end end})
     
     local st=WN:Tab({Title="信息统计",Icon="solar:chart-bold"})
     TE.GP=st:Paragraph({Title="🟢 好人: 0"});TE.BP=st:Paragraph({Title="🔴 坏人: 0"})
@@ -356,12 +398,12 @@ local function makeWindow()
     task.spawn(function()task.wait(1);pcall(function()CM:CreateConfig("default",true)end);task.spawn(mkParts)end)
     
     local at=WN:Tab({Title="关于",Icon="solar:info-square-bold"})
-    at:Paragraph({Title="机场安全透视 v14.6",Desc="行李Contraband检测"})
+    at:Paragraph({Title="机场安全透视 v14.7",Desc="禁用游戏Xray+粒子颜色实时跟踪"})
     at:Divider();at:Paragraph({Title="👤 作者",Desc="b站英吉利超入_"})
     at:Divider();at:Paragraph({Title="💡 使用",Desc=IM and"手机: 点击悬浮按钮"or"PC: RightShift打开菜单"})
     
     U.InputBegan:Connect(function(i,g)if g then return end;if i.UserInputType~=Enum.UserInputType.Keyboard then return end;local k=i.KeyCode.Name
-        if KB.ESP and KB.ESP~=""and k==KB.ESP then S.Enabled=not S.Enabled;if CT.ESP then CT.ESP:Set(S.Enabled)end;refreshESP();if S.Enabled then task.spawn(doScan)end end
+        if KB.ESP and KB.ESP~=""and k==KB.ESP then S.Enabled=not S.Enabled;if S.Enabled then disableGameXray()else enableGameXray()end;if CT.ESP then CT.ESP:Set(S.Enabled)end;refreshESP();if S.Enabled then task.spawn(doScan)end end
         if KB.BadOnly and KB.BadOnly~=""and k==KB.BadOnly then S.BadOnly=not S.BadOnly;if CT.BO then CT.BO:Set(S.BadOnly)end;refreshESP()end end)
     
     task.spawn(function()while true do task.wait(3);pcall(function()doScan();doLuggageScan();refreshESP();updateStats()end)end end)
@@ -370,8 +412,8 @@ end
 local ok,rv=pcall(function()return loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()end)
 if ok and rv then
     WI=rv;WI:SetTheme("Dark");S.PColor=gtc("Dark")
-    WI:Popup({Title="机场安全透视 v14.6",Icon="solar:info-square-bold",
-        Content="👁 NPC透视+分类\n🧳 行李Contraband检测\n⚠️ 功能默认关闭",
+    WI:Popup({Title="机场安全透视 v14.7",Icon="solar:info-square-bold",
+        Content="👁 NPC透视+分类\n🧳 行李Contraband检测\n🚫 自动禁用游戏Xray避免重叠\n⚠️ 功能默认关闭",
         Buttons={{Title="取消",Callback=function()end,Variant="Tertiary"},
             {Title="确认加载",Icon="solar:arrow-right-bold",Callback=function()
                 PP=true
