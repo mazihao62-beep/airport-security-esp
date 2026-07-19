@@ -1,14 +1,14 @@
 --[[
-    机场安全透视 v14.18
-    修复: 玩家过滤改用per-player事件追踪(永不丢失角色引用)
-    功能: NPC透视+行李箱检测(Highlight+BillboardGui)
+    机场安全透视 v15.0
+    新增: 自动工作系统(逮捕/击杀/全自动)
+    功能: NPC透视+行李箱检测+自动工作
     作者: b站英吉利超入_
 ]]
-local P=game:GetService("Players");local U=game:GetService("UserInputService");local W=game:GetService("Workspace");local C=game:GetService("CoreGui")
+local P=game:GetService("Players");local U=game:GetService("UserInputService");local W=game:GetService("Workspace");local C=game:GetService("CoreGui");local RS=game:GetService("ReplicatedStorage")
 local LP=P.LocalPlayer;local IM=U.TouchEnabled and not U.KeyboardEnabled
 if not IM then pcall(function()IM=U.TouchEnabled and not U.MouseEnabled end)end
 
--- 最简单的玩家过滤: GetPlayerFromCharacter + 名字后备
+-- 玩家过滤
 local function isPlayerChar(m)
     if not m then return false end
     local p=P:GetPlayerFromCharacter(m)
@@ -19,6 +19,12 @@ local function isPlayerChar(m)
     end
     return false
 end
+
+-- 查找远程事件
+local NPCArrest=nil;local MarkArrest=nil;local MarkSearch=nil
+pcall(function()NPCArrest=RS.Resources.Events.Client.NPCArrest end)
+pcall(function()MarkArrest=RS.Resources.Events.Client.MarkArrest end)
+pcall(function()MarkSearch=RS.Resources.Events.Client.MarkSearch end)
 
 local function clean()
     local wc=0
@@ -82,9 +88,9 @@ local function getLuggagePP(lug)
     return pp
 end
 
-local S={Enabled=false,BadOnly=false,ShowDist=false,ShowHP=false,Luggage=false,MaxRange=500,Theme="Dark",Particles=true,PColor=Color3.fromRGB(80,170,255)}
+local S={Enabled=false,BadOnly=false,ShowDist=false,ShowHP=false,Luggage=false,AutoWork=false,WorkMode="Arrest",WorkRange=20,MaxRange=500,Theme="Dark",Particles=true,PColor=Color3.fromRGB(80,170,255)}
 local H={};local LG={};local GC=0;local BC=0;local LC=0;local LDC=0;local LSC=0;local SC=0
-local WN=nil;local WI=nil;local PC=nil;local CT={};local KB={};local TE={};local PS={};local PR=false;local PP=false;local CF="default"
+local WN=nil;local WI=nil;local PC=nil;local CT={};local KB={};local TE={};local ATE={};local PS={};local PR=false;local PP=false;local CF="default"
 
 local function makeHL(obj,col)
     if not obj then return end;local hl=Instance.new("Highlight")
@@ -191,6 +197,100 @@ local function updateStats()
         if TE.LP then TE.LP:SetTitle("🧳 行李: "..LC.." (💣"..LDC.." 🟢"..LSC..")")end;if TE.SP then TE.SP:SetTitle("📊 总计: "..SC)end end)
 end
 
+-- 自动工作系统
+local WORK_H={} -- 正在处理的NPC
+local function getClosestBad()
+    if not LP or not LP.Character then return nil end
+    local mp=LP.Character:FindFirstChild("HumanoidRootPart")or LP.Character:FindFirstChild("Torso");if not mp then return nil end
+    local closest=nil;local minDist=S.WorkRange
+    for c,o in pairs(H)do
+        if c and c.Parent and o.nt=="Bad"and o.hrp then
+            local d=(o.hrp.Position-mp.Position).Magnitude
+            if d<minDist then minDist=d;closest=c end end end
+    return closest
+end
+
+local function findJail()
+    for _,o in ipairs(W:GetDescendants())do
+        if o:IsA("Part")and o.Name=="JailDetect"then
+            local jal=o:FindFirstChildOfClass("Part")and nil
+            local pos=nil;pcall(function()pos=o.Position end)
+            if pos then return pos end end end
+    local wsf=W:FindFirstChild("WorkspaceScriptable")
+    if wsf then local je=wsf:FindFirstChild("JailEssentials")
+        if je then for _,c in ipairs(je:GetChildren())do
+            local pp=nil;pcall(function()pp=c:IsA("Part")and c or(c:IsA("Model")and c.PrimaryPart)end)
+            if pp then return pp.Position end end end end
+    return nil
+end
+
+local function autoWork()
+    if not S.AutoWork then WORK_H={};return end
+    if not LP or not LP.Character then return end
+    local npc=getClosestBad()
+    if not npc then
+        pcall(function()if ATE.ST then ATE.ST:Set("[空闲] 范围内无坏人")end end)
+        return end
+    if WORK_H[npc]then return end
+    WORK_H[npc]=true
+    local mode=S.WorkMode
+    task.spawn(function()
+        local hrp=npc:FindFirstChild("HumanoidRootPart")or npc:FindFirstChild("Torso")
+        pcall(function()if ATE.ST then ATE.ST:Set("[工作中] 处理: "..npc.Name.." ("..mode..")")end end)
+        pcall(function()WI:Notify({Title="🚔 自动工作",Content="正在"..(mode=="Kill"and"击杀"or"逮捕")..": "..npc.Name,Duration=3,Icon="solar:police-car-bold"})end)
+        if mode=="Arrest"or mode=="Auto"then
+            if NPCArrest then
+                pcall(function()NPCArrest:FireServer(npc)end)
+                task.wait(1)
+                local hum=npc:FindFirstChildOfClass("Humanoid")
+                if hum and hum.Health>0 then
+                    pcall(function()if MarkArrest then MarkArrest:FireServer(npc)end end)
+                end
+            elseif MarkArrest then
+                pcall(function()MarkArrest:FireServer(npc)end)
+            end
+            hum=npc:FindFirstChildOfClass("Humanoid")
+            if hum and hum.Health>0 then
+                local hostile=scanProps(npc)
+                if hostile and mode=="Auto"then
+                    pcall(function()if ATE.ST then ATE.ST:Set("[反击] "..npc.Name.." 反抗,切换击杀")end end)
+                    if LP and LP.Character then
+                        local bp=LP:FindFirstChild("Backpack")
+                        if bp then
+                            for _,t in ipairs(bp:GetChildren())do
+                                if t:IsA("Tool")and(t.Name=="MP7A1"or t.Name=="M1911"or t.Name=="Taser")then
+                                    pcall(function()t.Parent=LP.Character end)
+                                    break end end end end end end end
+        if mode=="Kill"or(mode=="Auto"and hostile)then
+            if LP and LP.Character then
+                local bp=LP:FindFirstChild("Backpack")
+                if bp then
+                    for _,t in ipairs(bp:GetChildren())do
+                        if t:IsA("Tool")and(t.Name=="MP7A1"or t.Name=="M1911"or t.Name=="Taser")then
+                            pcall(function()t.Parent=LP.Character end)
+                            hrp=npc:FindFirstChild("HumanoidRootPart")or npc:FindFirstChild("Torso")
+                            if hrp then
+                                local hum2=npc:FindFirstChildOfClass("Humanoid")
+                                if hum2 and hum2.Health>0 then
+                                    pcall(function()t:Activate();t:FindFirstChild("Handle")and t.Handle:FindFirstChild("TouchInterest")end)
+                                end end
+                            break end end end end end
+        task.wait(2)
+        WORK_H[npc]=nil
+        pcall(function()if ATE.ST then ATE.ST:Set("[完成] "..npc.Name.." 已处理")end end)
+    end)
+end
+
+-- 自动工作循环
+local function startAutoWorkLoop()
+    while true do
+        task.wait(2)
+        pcall(function()
+            if S.AutoWork then autoWork()
+            else pcall(function()if ATE.ST then ATE.ST:Set("[停止] 自动工作已关闭")end end)end end)
+    end
+end
+
 local function updateParticleColors()local col=S.PColor;for _,p in ipairs(PS)do if p.F and p.F.Parent then p.F.BackgroundColor3=col end end end
 
 local function mkParts()
@@ -241,7 +341,7 @@ local function makeWindow()
         SideBarWidth=180,ScrollBarEnabled=true,HideSearchBar=true,
         OpenButton={Title="打开透视",Scale=0.5,Enabled=true,OnlyMobile=IM,Draggable=true,
             Color=ColorSequence.new(Color3.fromRGB(0,255,100),Color3.fromRGB(0,200,255)),CornerRadius=UDim.new(1,0),StrokeThickness=3},
-        OnClose=function()S.Enabled=false;S.Luggage=false;if CT.ESP then CT.ESP:Set(false)end;if CT.LT then CT.LT:Set(false)end;refreshESP();killParts()end,
+        OnClose=function()S.Enabled=false;S.Luggage=false;S.AutoWork=false;if CT.ESP then CT.ESP:Set(false)end;if CT.LT then CT.LT:Set(false)end;if CT.AW then CT.AW:Set(false)end;refreshESP();killParts()end,
         OnOpen=function()if S.Particles then task.spawn(function()task.wait(0.5);mkParts()end)end end})end)
     if not ok2 or not w then return end;WN=w
     local mt=WN:Tab({Title="主控面板",Icon="solar:slider-vertical-bold"})
@@ -252,6 +352,18 @@ local function makeWindow()
     mt:Divider();CT.RS=mt:Slider({Flag="Range",Title="最大探测距离",Step=50,Value={Min=50,Max=1000,Default=500},Width=200,IsTextbox=true,Callback=function(v)S.MaxRange=v end})
     local ft=WN:Tab({Title="功能设置",Icon="solar:settings-bold"})
     CT.EK=ft:Keybind({Flag="ESPK",Title="透视开关快捷键",Value="",Callback=function(k)KB.ESP=k end});CT.BK=ft:Keybind({Flag="BadK",Title="仅坏人快捷键",Value="",Callback=function(k)KB.BadOnly=k end})
+    
+    -- 自动工作Tab
+    local awt=WN:Tab({Title="自动工作",Icon="solar:police-car-bold"})
+    CT.AW=awt:Toggle({Flag="AutoWork",Title="自动模式",Value=false,Callback=function(v)S.AutoWork=v;if v then WI:Notify({Title="🚔 自动工作已开启",Content="模式:"..S.WorkMode.." 范围:"..S.WorkRange.."m",Duration=3})end end})
+    awt:Divider()
+    CT.WM=awt:Dropdown({Flag="WorkMode",Title="工作模式",Values={"Arrest","Kill","Auto"},Value="Arrest",Callback=function(v)S.WorkMode=v end})
+    CT.WR=awt:Slider({Flag="WorkRange",Title="工作范围(米)",Step=5,Value={Min=5,Max=50,Default=20},Width=180,IsTextbox=true,Callback=function(v)S.WorkRange=v end})
+    awt:Divider()
+    ATE.ST=awt:Input({Flag="WS",Title="状态",Value="[等待启动]",Locked=true,Icon="solar:info-circle-bold"})
+    awt:Space()
+    awt:Paragraph({Title="📋 工作说明",Desc="Arrest=逮捕\nKill=击杀\nAuto=先逮捕,反抗则击杀"})
+    
     local ut=WN:Tab({Title="UI设置",Icon="solar:monitor-bold"})
     CT.WK=ut:Keybind({Flag="WinK",Title="窗口开关",Value="RightShift",Callback=function(k)KB.Win=k end});ut:Divider()
     CT.PT=ut:Toggle({Flag="PT",Title="粒子背景",Value=true,Callback=function(v)S.Particles=v;if v then task.spawn(mkParts)else killParts()end end});ut:Divider()
@@ -270,16 +382,17 @@ local function makeWindow()
     ct:Button({Title="🗑️ 删除",Icon="solar:trash-bin-trash-bold",Justify="Center",Color=Color3.fromHex("#ff3040"),Callback=function()if not CM then return end;local c=CM:Config(CF);if c and c:Delete()then WI:Notify({Title="🗑️ 已删除",Content="配置 '"..CF.."'",Duration=3,Icon="solar:trash-bin-trash-bold"});ACD:Refresh(CM:AllConfigs())end end})
     task.spawn(function()task.wait(1);pcall(function()CM:CreateConfig("default",true)end);task.spawn(mkParts)end)
     local at=WN:Tab({Title="关于",Icon="solar:info-square-bold"})
-    at:Paragraph({Title="机场安全透视 v14.18",Desc="玩家过滤简化"})
+    at:Paragraph({Title="机场安全透视 v15.0",Desc="新增自动工作系统"})
     at:Divider();at:Paragraph({Title="👤 作者",Desc="b站英吉利超入_"});at:Divider()
     at:Paragraph({Title="💡 使用",Desc=IM and"手机:点击悬浮按钮"or"PC:RightShift打开菜单"})
     U.InputBegan:Connect(function(i,g)if g then return end;if i.UserInputType~=Enum.UserInputType.Keyboard then return end;local k=i.KeyCode.Name
         if KB.ESP and KB.ESP~=""and k==KB.ESP then S.Enabled=not S.Enabled;if CT.ESP then CT.ESP:Set(S.Enabled)end;refreshESP();if S.Enabled then task.spawn(doScan)end end
         if KB.BadOnly and KB.BadOnly~=""and k==KB.BadOnly then S.BadOnly=not S.BadOnly;if CT.BO then CT.BO:Set(S.BadOnly)end;refreshESP()end end)
     task.spawn(function()while true do task.wait(3);pcall(function()doScan();refreshESP();updateStats()end)end end)
+    task.spawn(startAutoWorkLoop)
 end
 
--- 加载WindUI (3次重试 + 超时保护)
+-- 加载WindUI (3次重试)
 local retryCount=0;local maxRetries=3;local loaded=false
 while retryCount<maxRetries and not loaded do
     local ok,rv=pcall(function()return loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()end)
@@ -288,8 +401,8 @@ while retryCount<maxRetries and not loaded do
 
 if loaded then
     pcall(function()WI:SetTheme("Dark")end);S.PColor=gtc("Dark")
-    WI:Popup({Title="机场安全透视 v14.18",Icon="solar:info-square-bold",
-        Content="👁 NPC透视+Highlight高亮\n🔴🟢 红色=坏人/绿色=好人\n🧳 行李箱检测+高亮\n🌀 粒子背景\n⚠️ 功能默认关闭",
+    WI:Popup({Title="机场安全透视 v15.0",Icon="solar:info-square-bold",
+        Content="👁 NPC透视+Highlight高亮\n🔴🟢 红色=坏人/绿色=好人\n🧳 行李箱检测+高亮\n🚔 自动工作(逮捕/击杀/全自动)\n🌀 粒子背景\n⚠️ 功能默认关闭",
         Buttons={{Title="取消",Callback=function()end,Variant="Tertiary"},
             {Title="确认加载",Icon="solar:arrow-right-bold",Callback=function()PP=true
                 WI:Notify({Title="✅ 已加载",Content="按RightShift打开菜单",Duration=4,Icon="solar:bell-bold"});task.spawn(makeWindow)end,Variant="Primary"}}})
