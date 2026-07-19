@@ -1,7 +1,7 @@
 --[[
-    机场安全透视 v14.12
-    功能: NPC透视+行李箱检测 | 纯BillboardGui
-    修复: 行李箱标签重复 — 只扫直接子级+PP去重+扫描中去重
+    机场安全透视 v14.13
+    功能: NPC透视+行李箱检测(双重重现: Highlight+BillboardGui)
+    修复: 高亮回归; 红色=坏人/危险行李; 绿色=好人/安全行李
     作者: b站英吉利超入_
 ]]
 local P=game:GetService("Players")
@@ -83,7 +83,6 @@ local function classifyLuggage(lug)
     return"Suspicious"
 end
 
--- 获取行李箱的PrimaryPart
 local function getLuggagePP(lug)
     local pp=nil
     pcall(function()pp=lug.PrimaryPart end)
@@ -104,6 +103,14 @@ local LG={}
 local GC=0;local BC=0;local LC=0;local LDC=0;local LSC=0;local SC=0
 local WN=nil;local WI=nil;local PC=nil;local CT={};local KB={};local TE={};local PS={};local PR=false;local PP=false;local CF="default"
 
+local function makeHL(obj,col)
+    if not obj then return end
+    local hl=Instance.new("Highlight")
+    hl.FillColor=col;hl.FillTransparency=0.25;hl.OutlineColor=Color3.fromRGB(255,255,255);hl.OutlineTransparency=0
+    hl.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop;hl.Adornee=obj;hl.Parent=obj
+    return hl
+end
+
 local function makeNPC_ESP(c,nt)
     if not c or not c.Parent then return end
     for _,p in ipairs(P:GetPlayers())do if p.Character==c then return end end
@@ -116,6 +123,7 @@ local function makeNPC_ESP(c,nt)
     end
     local col=nt=="Good"and Color3.fromRGB(0,255,80)or Color3.fromRGB(255,40,40)
     local tag=nt=="Good"and"👮 好人"or"💀 坏人"
+    local hl=makeHL(c,col)
     local head=c:FindFirstChild("Head")or hrp
     local bb=Instance.new("BillboardGui");bb.Adornee=head;bb.Size=UDim2.new(0,220,0,56)
     bb.StudsOffset=Vector3.new(0,5,0);bb.AlwaysOnTop=true;bb.MaxDistance=S.MaxRange
@@ -129,17 +137,15 @@ local function makeNPC_ESP(c,nt)
     local lb=Instance.new("TextLabel");lb.Size=UDim2.new(1,-6,1,0);lb.Position=UDim2.new(0,3,0,0)
     lb.BackgroundTransparency=1;lb.TextColor3=col;lb.Font=Enum.Font.SourceSansBold
     lb.TextScaled=true;lb.Text=tag;lb.BorderSizePixel=0;lb.Parent=bg
-    H[c]={bb=bb,lb=lb,hrp=hrp,nt=nt,tag=tag}
+    H[c]={bb=bb,lb=lb,hrp=hrp,nt=nt,tag=tag,hl=hl}
     SC=SC+1;if nt=="Good"then GC=GC+1 else BC=BC+1 end
 end
 
 local function makeLuggage_ESP(lug,lt)
     if not lug or not lug.Parent then return end
-    -- 只处理名字叫OpenableLuggage的Model（过滤掉Lid/Base等子部件）
     if lug.Name~="OpenableLuggage" then return end
     local pp=getLuggagePP(lug)
     if not pp then return end
-    -- 同一个PrimaryPart只创建一个标签
     local key=pp
     if LG[key]then
         if LG[key].nt~=lt then
@@ -148,11 +154,13 @@ local function makeLuggage_ESP(lug,lt)
                 local col=lt=="Dangerous"and Color3.fromRGB(255,40,40)or(lt=="Safe"and Color3.fromRGB(0,255,80)or Color3.fromRGB(255,180,40))
                 LG[key].lb.TextColor3=col;LG[key].lb.Text=LG[key].tag
             end
+            if LG[key].hl then LG[key].hl.FillColor=col end
         end
         return
     end
     local col=lt=="Dangerous"and Color3.fromRGB(255,40,40)or(lt=="Safe"and Color3.fromRGB(0,255,80)or Color3.fromRGB(255,180,40))
     local tag=lt=="Dangerous"and"💣 危险行李"or(lt=="Safe"and"🧳 安全行李"or"❓ 可疑行李")
+    local hl=makeHL(lug,col)
     local bb=Instance.new("BillboardGui");bb.Adornee=pp;bb.Size=UDim2.new(0,220,0,56)
     bb.StudsOffset=Vector3.new(0,3,0);bb.AlwaysOnTop=true;bb.MaxDistance=S.MaxRange
     bb.Enabled=S.Luggage;bb.Parent=C
@@ -165,7 +173,7 @@ local function makeLuggage_ESP(lug,lt)
     local lb=Instance.new("TextLabel");lb.Size=UDim2.new(1,-6,1,0);lb.Position=UDim2.new(0,3,0,0)
     lb.BackgroundTransparency=1;lb.TextColor3=col;lb.Font=Enum.Font.SourceSansBold
     lb.TextScaled=true;lb.Text=tag;lb.BorderSizePixel=0;lb.Parent=bg
-    LG[key]={bb=bb,lb=lb,pp=pp,nt=lt,tag=tag}
+    LG[key]={bb=bb,lb=lb,pp=pp,nt=lt,tag=tag,hl=hl}
     LC=LC+1;if lt=="Dangerous"then LDC=LDC+1 elseif lt=="Safe"then LSC=LSC+1 end
 end
 
@@ -184,17 +192,12 @@ local function doScan()
     end
 end
 
--- 行李箱扫描：只扫直接子级+PrimaryPart去重
 local function rescanLuggage()
-    -- 清理旧标签
     for _,o in pairs(LG)do
-        pcall(function()if o.bb then o.bb:Destroy()end end)
+        pcall(function()if o.bb then o.bb:Destroy()end;if o.hl then o.hl:Destroy()end end)
     end
     LG={};LC=0;LDC=0;LSC=0
-    
-    -- 同一轮扫描中看到的PrimaryPart集合，防止一轮扫描内有重复
     local seenPP={}
-    
     local wsf=W:FindFirstChild("WorkspaceScriptable")
     if wsf then
         local sto=wsf:FindFirstChild("Storage")
@@ -204,7 +207,6 @@ local function rescanLuggage()
                 for _,fn in ipairs({"LuggageWorkspace","LuggageOpenWorkspace","LuggageEndWorkspace"})do
                     local fw=ns:FindFirstChild(fn)
                     if fw then
-                        -- 只扫直接子级，不要GetDescendants（会扫到Lid/Base等子部件）
                         for _,lug in ipairs(fw:GetChildren())do
                             if lug:IsA("Model")and lug.Name=="OpenableLuggage"then
                                 local pp=getLuggagePP(lug)
@@ -219,7 +221,6 @@ local function rescanLuggage()
             end
         end
     end
-    -- 备选：如果上面没找到，搜OpenableLuggage名字的Model
     if LC==0 then
         for _,o in ipairs(W:GetDescendants())do
             if o:IsA("Model")and o.Name=="OpenableLuggage"and o.Parent and o.Parent:IsA("Folder")then
@@ -235,24 +236,26 @@ end
 
 local function refreshESP()
     for c,o in pairs(H)do
-        if not c or not c.Parent then pcall(function()o.bb:Destroy()end);H[c]=nil
+        if not c or not c.Parent then pcall(function()o.bb:Destroy()end;if o.hl then o.hl:Destroy()end end);H[c]=nil
         else
             local en=S.Enabled and(not S.BadOnly or o.nt=="Bad")
             if o.bb then o.bb.Enabled=en end
+            if o.hl then o.hl.Enabled=en end
             if o.lb then
                 local txt=o.tag
                 if S.ShowDist and LP.Character then
                     local mp=LP.Character:FindFirstChild("HumanoidRootPart")
-                    if mp and o.hrp then txt=txt.."\n"..math.floor((o.hrp.Position-mp.Position).Magnitude+0.5).."m"end
+                    if mp and o.hrp then txt=txt.." | "..math.floor((o.hrp.Position-mp.Position).Magnitude+0.5).."m"end
                 end
                 if S.ShowHP then local h2=c:FindFirstChildOfClass("Humanoid")
-                    if h2 then txt=txt.."\nHP:"..math.floor(h2.Health+0.5).."/"..math.floor(h2.MaxHealth+0.5)end end
+                    if h2 then txt=txt.." | HP:"..math.floor(h2.Health+0.5).."/"..math.floor(h2.MaxHealth+0.5)end end
                 o.lb.Text=txt
             end
         end
     end
     for _,o in pairs(LG)do
         if o.bb then o.bb.Enabled=S.Luggage end
+        if o.hl then o.hl.Enabled=S.Luggage end
     end
 end
 
@@ -351,7 +354,7 @@ local function makeWindow()
     })end)
     if not ok2 or not w then return end
     WN=w
-    
+
     local mt=WN:Tab({Title="主控面板",Icon="solar:slider-vertical-bold"})
     CT.ESP=mt:Toggle({Flag="ESP",Title="透视开关",Value=false,
         Callback=function(v)S.Enabled=v;refreshESP();if v then task.spawn(doScan)end end})
@@ -360,23 +363,19 @@ local function makeWindow()
     CT.LT=mt:Toggle({Flag="Luggage",Title="🧳 行李箱检测",Value=false,
         Callback=function(v)
             S.Luggage=v
-            if v then
-                task.spawn(rescanLuggage)
-            else
-                for _,o in pairs(LG)do pcall(function()if o.bb then o.bb:Destroy()end end)end
-                LG={};LC=0;LDC=0;LSC=0
-            end
+            if v then task.spawn(rescanLuggage)
+            else for _,o in pairs(LG)do pcall(function()if o.bb then o.bb:Destroy()end;if o.hl then o.hl:Destroy()end end)end;LG={};LC=0;LDC=0;LSC=0 end
         end})
     mt:Divider()
     CT.DT=mt:Toggle({Flag="Dist",Title="显示距离",Value=false,Callback=function(v)S.ShowDist=v end})
     CT.HT=mt:Toggle({Flag="Health",Title="显示血量",Value=false,Callback=function(v)S.ShowHP=v end})
     mt:Divider()
     CT.RS=mt:Slider({Flag="Range",Title="最大探测距离",Step=50,Value={Min=50,Max=1000,Default=500},Width=200,IsTextbox=true,Callback=function(v)S.MaxRange=v end})
-    
+
     local ft=WN:Tab({Title="功能设置",Icon="solar:settings-bold"})
     CT.EK=ft:Keybind({Flag="ESPK",Title="透视开关快捷键",Value="",Callback=function(k)KB.ESP=k end})
     CT.BK=ft:Keybind({Flag="BadK",Title="仅坏人快捷键",Value="",Callback=function(k)KB.BadOnly=k end})
-    
+
     local ut=WN:Tab({Title="UI设置",Icon="solar:monitor-bold"})
     CT.WK=ut:Keybind({Flag="WinK",Title="窗口开关",Value="RightShift",Callback=function(k)KB.Win=k end})
     ut:Divider()
@@ -391,11 +390,11 @@ local function makeWindow()
             S.Theme=sl;WI:SetTheme(sl);S.PColor=gtc(sl)
             updateParticleColors()
         end end})
-    
+
     local st=WN:Tab({Title="信息统计",Icon="solar:chart-bold"})
     TE.GP=st:Paragraph({Title="🟢 好人: 0"});TE.BP=st:Paragraph({Title="🔴 坏人: 0"})
     TE.LP=st:Paragraph({Title="🧳 行李: 0"});TE.SP=st:Paragraph({Title="📊 总计: 0"})
-    
+
     local ct=WN:Tab({Title="配置管理",Icon="solar:diskette-bold"})
     local cni=ct:Input({Flag="CN",Title="配置名称",Value="default",Icon="solar:file-text-bold",Callback=function(v)CF=v end});ct:Space()
     local CM=WN.ConfigManager;local AC={};pcall(function()AC=CM:AllConfigs()end)
@@ -408,24 +407,24 @@ local function makeWindow()
     ct:Button({Title="🗑️ 删除",Icon="solar:trash-bin-trash-bold",Justify="Center",Color=Color3.fromHex("#ff3040"),
         Callback=function()if not CM then return end;local c=CM:Config(CF);if c and c:Delete()then WI:Notify({Title="🗑️ 已删除",Content="配置 '"..CF.."'",Duration=3,Icon="solar:trash-bin-trash-bold"});ACD:Refresh(CM:AllConfigs())end end})
     task.spawn(function()task.wait(1);pcall(function()CM:CreateConfig("default",true)end);task.spawn(mkParts)end)
-    
+
     local at=WN:Tab({Title="关于",Icon="solar:info-square-bold"})
-    at:Paragraph({Title="机场安全透视 v14.12",Desc="行李箱标签彻底去重"})
+    at:Paragraph({Title="机场安全透视 v14.13",Desc="高亮回归+行李箱检测"})
     at:Divider();at:Paragraph({Title="👤 作者",Desc="b站英吉利超入_"})
-    at:Divider();at:Paragraph({Title="💡 使用",Desc=IM and"手机: 点击悬浮按钮"or"PC: RightShift打开菜单"})
-    
+    at:Divider();at:Paragraph({Title="💡 使用",Desc=IM and"手机:点击悬浮按钮"or"PC:RightShift打开菜单"})
+
     U.InputBegan:Connect(function(i,g)if g then return end;if i.UserInputType~=Enum.UserInputType.Keyboard then return end;local k=i.KeyCode.Name
         if KB.ESP and KB.ESP~=""and k==KB.ESP then S.Enabled=not S.Enabled;if CT.ESP then CT.ESP:Set(S.Enabled)end;refreshESP();if S.Enabled then task.spawn(doScan)end end
         if KB.BadOnly and KB.BadOnly~=""and k==KB.BadOnly then S.BadOnly=not S.BadOnly;if CT.BO then CT.BO:Set(S.BadOnly)end;refreshESP()end end)
-    
+
     task.spawn(function()while true do task.wait(3);pcall(function()doScan();refreshESP();updateStats()end)end end)
 end
 
 local ok,rv=pcall(function()return loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()end)
 if ok and rv then
     WI=rv;WI:SetTheme("Dark");S.PColor=gtc("Dark")
-    WI:Popup({Title="机场安全透视 v14.12",Icon="solar:info-square-bold",
-        Content="👁 NPC透视+分类\n🧳 行李箱检测(彻底去重)\n🌀 粒子Scale永不卡边\n⚠️ 功能默认关闭",
+    WI:Popup({Title="机场安全透视 v14.13",Icon="solar:info-square-bold",
+        Content="👁 NPC透视+Highlight高亮\n🔴🟢 红色=坏人/绿色=好人\n🧳 行李箱检测+高亮\n🌀 粒子背景\n⚠️ 功能默认关闭",
         Buttons={{Title="取消",Callback=function()end,Variant="Tertiary"},
             {Title="确认加载",Icon="solar:arrow-right-bold",Callback=function()
                 PP=true
