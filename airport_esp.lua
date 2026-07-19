@@ -1,12 +1,27 @@
 --[[
-    机场安全透视 v14.16
-    修复: 透视检测到玩家(改用GetPlayerFromCharacter)
+    机场安全透视 v14.17
+    修复: 玩家过滤改用持续追踪(CharacterAdded/Removing事件)
     功能: NPC透视+行李箱检测(Highlight+BillboardGui)
     作者: b站英吉利超入_
 ]]
 local P=game:GetService("Players");local U=game:GetService("UserInputService");local W=game:GetService("Workspace");local C=game:GetService("CoreGui")
 local LP=P.LocalPlayer;local IM=U.TouchEnabled and not U.KeyboardEnabled
 if not IM then pcall(function()IM=U.TouchEnabled and not U.MouseEnabled end)end
+
+-- 持续追踪所有玩家角色(不依赖GetPlayerFromCharacter瞬时查询)
+local PCSet={}
+local function updatePlayerSet()
+    for k in pairs(PCSet)do PCSet[k]=nil end
+    for _,p in ipairs(P:GetPlayers())do
+        local c=p.Character
+        if c then PCSet[c]=true end
+    end
+end
+updatePlayerSet()
+P.PlayerAdded:Connect(function()updatePlayerSet()end)
+P.PlayerRemoving:Connect(function()updatePlayerSet()end)
+P.CharacterAdded:Connect(function()updatePlayerSet()end)
+P.CharacterRemoving:Connect(function()updatePlayerSet()end)
 
 local function clean()
     local wc=0
@@ -82,8 +97,8 @@ end
 
 local function makeNPC_ESP(c,nt)
     if not c or not c.Parent then return end
-    -- 使用官方API检测玩家, 比p.Character==c更可靠(支持重生/换角色)
-    if P:GetPlayerFromCharacter(c)then return end
+    -- 查持续追踪的玩家集合(比GetPlayerFromCharacter可靠, 角色重生或受伤时不会漏)
+    if PCSet[c]then return end
     if H[c]then return end
     local hrp=c:FindFirstChild("HumanoidRootPart")or c:FindFirstChild("Torso")or c:FindFirstChildOfClass("Part");if not hrp then return end
     if LP and LP.Character then local mp=LP.Character:FindFirstChild("HumanoidRootPart")or LP.Character:FindFirstChild("Torso")
@@ -133,12 +148,14 @@ local function makeLuggage_ESP(lug,lt)
 end
 
 local function doScan()
+    -- 每次扫描前刷新玩家集合
+    updatePlayerSet()
     local seen={}
     for _,o in ipairs(W:GetDescendants())do
         if o:IsA("Humanoid")then local c=o.Parent
             if c and c:IsA("Model")and not seen[c]then seen[c]=true
-                -- 官方API: GetPlayerFromCharacter 比 p.Character==c 更可靠
-                if not P:GetPlayerFromCharacter(c)then local nt=classify(c);makeNPC_ESP(c,nt)end end end end
+                -- 查持续追踪的玩家集合
+                if not PCSet[c]then local nt=classify(c);makeNPC_ESP(c,nt)end end end end
 end
 
 local function rescanLuggage()
@@ -260,7 +277,7 @@ local function makeWindow()
     ct:Button({Title="🗑️ 删除",Icon="solar:trash-bin-trash-bold",Justify="Center",Color=Color3.fromHex("#ff3040"),Callback=function()if not CM then return end;local c=CM:Config(CF);if c and c:Delete()then WI:Notify({Title="🗑️ 已删除",Content="配置 '"..CF.."'",Duration=3,Icon="solar:trash-bin-trash-bold"});ACD:Refresh(CM:AllConfigs())end end})
     task.spawn(function()task.wait(1);pcall(function()CM:CreateConfig("default",true)end);task.spawn(mkParts)end)
     local at=WN:Tab({Title="关于",Icon="solar:info-square-bold"})
-    at:Paragraph({Title="机场安全透视 v14.16",Desc="修复检测到玩家"})
+    at:Paragraph({Title="机场安全透视 v14.17",Desc="玩家追踪改用事件监听"})
     at:Divider();at:Paragraph({Title="👤 作者",Desc="b站英吉利超入_"});at:Divider()
     at:Paragraph({Title="💡 使用",Desc=IM and"手机:点击悬浮按钮"or"PC:RightShift打开菜单"})
     U.InputBegan:Connect(function(i,g)if g then return end;if i.UserInputType~=Enum.UserInputType.Keyboard then return end;local k=i.KeyCode.Name
@@ -278,7 +295,7 @@ while retryCount<maxRetries and not loaded do
 
 if loaded then
     pcall(function()WI:SetTheme("Dark")end);S.PColor=gtc("Dark")
-    WI:Popup({Title="机场安全透视 v14.16",Icon="solar:info-square-bold",
+    WI:Popup({Title="机场安全透视 v14.17",Icon="solar:info-square-bold",
         Content="👁 NPC透视+Highlight高亮\n🔴🟢 红色=坏人/绿色=好人\n🧳 行李箱检测+高亮\n🌀 粒子背景\n⚠️ 功能默认关闭",
         Buttons={{Title="取消",Callback=function()end,Variant="Tertiary"},
             {Title="确认加载",Icon="solar:arrow-right-bold",Callback=function()PP=true
