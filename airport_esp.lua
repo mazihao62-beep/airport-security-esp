@@ -1,7 +1,7 @@
 --[[
-    机场安全透视 v14.3
+    机场安全透视 v14.4
     功能: NPC透视+头顶标签+分类+快捷键+配置保存
-    修复: WindUI内置OpenButton/Window:Toggle/移除手工按钮
+    修复: makeWindow提前定义/clean清WindUI重复/AT-TT分离/OnlyMobile修正
     作者: b站英吉利超入_
 ]]
 local P=game:GetService("Players")
@@ -13,10 +13,12 @@ local IM=U.TouchEnabled and not U.KeyboardEnabled
 if not IM then pcall(function()IM=U.TouchEnabled and not U.MouseEnabled end)end
 
 local function clean()
+    local wc=0
     for _,g in ipairs(C:GetChildren())do
         if g:IsA("ScreenGui")then
             local n=g.Name
-            if n=="A"or n:find("AirportESP")then pcall(function()g:Destroy()end)end
+            if n:find("WindUI")then wc=wc+1;if wc>1 then pcall(function()g:Destroy()end)end
+            elseif n=="A"or n:find("AirportESP")then pcall(function()g:Destroy()end)end
         end
     end
 end
@@ -95,7 +97,7 @@ local function makeESP(c,nt)
     bb.Enabled=S.Enabled and(not S.BadOnly or nt=="Bad");bb.Parent=C
     local bg=Instance.new("Frame");bg.Size=UDim2.new(1,0,1,0);bg.BackgroundColor3=Color3.fromRGB(0,0,0)
     bg.BackgroundTransparency=0.7;bg.BorderSizePixel=0;bg.Parent=bb
-    local cn=Instance.new("UICorner");cn.CornerRadius=UDim.new(0,6);cn.Parent=bg
+    Instance.new("UICorner",bg).CornerRadius=UDim.new(0,6)
     local lb=Instance.new("TextLabel");lb.Size=UDim2.new(1,-4,1,0);lb.Position=UDim2.new(0,2,0,0)
     lb.BackgroundTransparency=1;lb.TextColor3=col;lb.Font=Enum.Font.SourceSansBold
     lb.TextScaled=true;lb.Text=tag;lb.BorderSizePixel=0;lb.Parent=bg
@@ -157,12 +159,12 @@ local function updateStats()
     end)
 end
 
--- 粒子（WindUI内置OpenButton后，粒子挂载方式不变）
+-- 粒子
 local function mkParts()
     if not PP then return end
     if PC then return end
+    task.wait(0.5)
     local wf=nil
-    task.wait(0.5) -- 等WindUI窗口完全渲染
     pcall(function()
         for _,g in ipairs(C:GetChildren())do
             if g:IsA("ScreenGui")and g.Name:find("WindUI")then
@@ -210,7 +212,6 @@ local function upc()
     for _,p in ipairs(PS)do if p.F then p.F.BackgroundColor3=c end end
 end
 
--- WindUI
 local function gtc(n)
     if not n then return Color3.fromRGB(80,170,255)end;local l=n:lower()
     local m={dark=Color3.fromRGB(80,170,255),light=Color3.fromRGB(60,130,210),rose=Color3.fromRGB(255,130,170),plant=Color3.fromRGB(70,210,130),ocean=Color3.fromRGB(60,190,240),sunset=Color3.fromRGB(255,160,70),midnight=Color3.fromRGB(130,100,240),forest=Color3.fromRGB(60,180,90),lavender=Color3.fromRGB(190,140,255),coral=Color3.fromRGB(255,140,90),mint=Color3.fromRGB(80,230,190),sky=Color3.fromRGB(100,190,255),blood=Color3.fromRGB(230,90,80),lemon=Color3.fromRGB(230,210,70),cyber=Color3.fromRGB(0,235,210)}
@@ -226,90 +227,91 @@ local function gtc(n)
     return Color3.fromRGB(80,170,255)
 end
 
+-- makeWindow 提前定义（修复 race condition）
+local function makeWindow()
+    local ok2,w=pcall(function()return WI:CreateWindow({
+        Title="机场安全透视",Author="b站英吉利超入_",Icon="solar:shield-warning-bold",
+        Size=UDim2.fromOffset(750,520),ToggleKey=Enum.KeyCode.RightShift,
+        Folder="airport-esp",Acrylic=true,Transparent=true,Resizable=false,
+        SideBarWidth=180,ScrollBarEnabled=true,HideSearchBar=true,
+        OpenButton={Title="打开透视",Scale=0.5,Enabled=true,OnlyMobile=IM,Draggable=true,
+            Color=ColorSequence.new(Color3.fromRGB(0,255,100),Color3.fromRGB(0,200,255)),
+            CornerRadius=UDim.new(1,0),StrokeThickness=3},
+        OnClose=function()S.Enabled=false;if CT.ESP then CT.ESP:Set(false)end;refreshESP();killParts()end,
+        OnOpen=function()if S.Particles then task.spawn(function()task.wait(0.8);mkParts()end)end end
+    })end)
+    if not ok2 or not w then return end
+    WN=w
+    
+    local mt=WN:Tab({Title="主控面板",Icon="solar:slider-vertical-bold"})
+    CT.ESP=mt:Toggle({Flag="ESP",Title="透视开关",Value=false,
+        Callback=function(v)S.Enabled=v;refreshESP();if v then task.spawn(doScan)end end})
+    CT.BO=mt:Toggle({Flag="BadOnly",Title="仅显示坏人",Value=false,
+        Callback=function(v)S.BadOnly=v;refreshESP()end})
+    mt:Divider()
+    CT.DT=mt:Toggle({Flag="Dist",Title="显示距离",Value=false,Callback=function(v)S.ShowDist=v end})
+    CT.HT=mt:Toggle({Flag="Health",Title="显示血量",Value=false,Callback=function(v)S.ShowHP=v end})
+    mt:Divider()
+    CT.RS=mt:Slider({Flag="Range",Title="最大探测距离",Step=50,Value={Min=50,Max=1000,Default=500},Width=200,IsTextbox=true,Callback=function(v)S.MaxRange=v end})
+    
+    local ft=WN:Tab({Title="功能设置",Icon="solar:settings-bold"})
+    CT.EK=ft:Keybind({Flag="ESPK",Title="透视开关快捷键",Value="",Callback=function(k)KB.ESP=k end})
+    CT.BK=ft:Keybind({Flag="BadK",Title="仅坏人快捷键",Value="",Callback=function(k)KB.BadOnly=k end})
+    
+    local ut=WN:Tab({Title="UI设置",Icon="solar:monitor-bold"})
+    CT.WK=ut:Keybind({Flag="WinK",Title="窗口开关",Value="RightShift",Callback=function(k)KB.Win=k end})
+    ut:Divider()
+    CT.PT=ut:Toggle({Flag="PT",Title="粒子背景",Value=true,Callback=function(v)S.Particles=v;if v then task.spawn(mkParts)else killParts()end end})
+    ut:Divider()
+    CT.AT=ut:Toggle({Flag="AT",Title="毛玻璃(Acrylic)",Value=true,Callback=function(v)pcall(function()WI:ToggleAcrylic(v)end)end})
+    CT.TT=ut:Toggle({Flag="TT",Title="透明背景(Transparent)",Value=true,Callback=function(v)pcall(function()if WN then pcall(function()WN:ToggleTransparency(v)end)end end)end})
+    ut:Divider()
+    local allT={};pcall(function()allT=WI:GetThemes()end);local tn={};for n,_ in pairs(allT)do table.insert(tn,n)end;table.sort(tn)
+    CT.TD=ut:Dropdown({Flag="TD",Title="选择主题",Values=tn,Value="Dark",Callback=function(sl)if sl then S.Theme=sl;WI:SetTheme(sl);S.PColor=gtc(sl);upc()end end})
+    
+    local st=WN:Tab({Title="信息统计",Icon="solar:chart-bold"})
+    TE.GP=st:Paragraph({Title="🟢 好人: 0"})
+    TE.BP=st:Paragraph({Title="🔴 坏人: 0"})
+    TE.SP=st:Paragraph({Title="📊 总计: 0"})
+    
+    local ct=WN:Tab({Title="配置管理",Icon="solar:diskette-bold"})
+    local cni=ct:Input({Flag="CN",Title="配置名称",Value="default",Icon="solar:file-text-bold",Callback=function(v)CF=v end});ct:Space()
+    local CM=WN.ConfigManager;local AC={};pcall(function()AC=CM:AllConfigs()end)
+    local DV=nil;pcall(function()for _,v in ipairs(AC)do if v=="default"then DV="default";break end end end)
+    local ACD=ct:Dropdown({Title="已有配置",Values=AC,Value=DV,Callback=function(v)if v then CF=v;cni:Set(v)end end});ct:Space()
+    ct:Button({Title="💾 保存",Icon="solar:check-circle-bold",Justify="Center",Color=Color3.fromHex("#305dff"),
+        Callback=function()if not CM then return end;local c=CM:Config(CF);if c and c:Save()then WI:Notify({Title="✅ 已保存",Content="配置 '"..CF.."'",Duration=3,Icon="solar:check-circle-bold"});ACD:Refresh(CM:AllConfigs())end end});ct:Space()
+    ct:Button({Title="📂 加载",Icon="solar:refresh-circle-bold",Justify="Center",Color=Color3.fromHex("#10C550"),
+        Callback=function()if not CM then return end;local c=CM:CreateConfig(CF,false);if c and c:Load()then WI:Notify({Title="✅ 已加载",Content="配置 '"..CF.."'",Duration=3,Icon="solar:refresh-circle-bold"})end end});ct:Space()
+    ct:Button({Title="🗑️ 删除",Icon="solar:trash-bin-trash-bold",Justify="Center",Color=Color3.fromHex("#ff3040"),
+        Callback=function()if not CM then return end;local c=CM:Config(CF);if c and c:Delete()then WI:Notify({Title="🗑️ 已删除",Content="配置 '"..CF.."'",Duration=3,Icon="solar:trash-bin-trash-bold"});ACD:Refresh(CM:AllConfigs())end end})
+    task.spawn(function()task.wait(1);pcall(function()CM:CreateConfig("default",true)end);task.spawn(mkParts)end)
+    
+    local at=WN:Tab({Title="关于",Icon="solar:info-square-bold"})
+    at:Paragraph({Title="机场安全透视 v14.4",Desc="makeWindow提前/clean修复/AT-TT分离/OnlyMobile"})
+    at:Divider();at:Paragraph({Title="👤 作者",Desc="b站英吉利超入_"})
+    at:Divider();at:Paragraph({Title="💡 使用",Desc=IM and"手机: 点击悬浮按钮"or"PC: RightShift打开菜单"})
+    
+    U.InputBegan:Connect(function(i,g)if g then return end;if i.UserInputType~=Enum.UserInputType.Keyboard then return end;local k=i.KeyCode.Name
+        if KB.ESP and KB.ESP~=""and k==KB.ESP then S.Enabled=not S.Enabled;if CT.ESP then CT.ESP:Set(S.Enabled)end;refreshESP();if S.Enabled then task.spawn(doScan)end end
+        if KB.BadOnly and KB.BadOnly~=""and k==KB.BadOnly then S.BadOnly=not S.BadOnly;if CT.BO then CT.BO:Set(S.BadOnly)end;refreshESP()end end)
+    
+    task.spawn(function()while true do task.wait(3);pcall(function()doScan();refreshESP();updateStats()end)end end)
+end
+
 local ok,rv=pcall(function()return loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()end)
 if ok and rv then
     WI=rv;WI:SetTheme("Dark");S.PColor=gtc("Dark")
-    WI:Popup({Title="机场安全透视 v14.3",Icon="solar:info-square-bold",
+    WI:Popup({Title="机场安全透视 v14.4",Icon="solar:info-square-bold",
         Content="👁 NPC透视高亮+头顶标签\n🔍 递归Properties深度扫描分类\n⚠️ 功能默认关闭",
         Buttons={{Title="取消",Callback=function()end,Variant="Tertiary"},
             {Title="确认加载",Icon="solar:arrow-right-bold",Callback=function()
                 PP=true
                 WI:Notify({Title="✅ 已加载",Content="按RightShift打开菜单",Duration=4,Icon="solar:bell-bold"})
-                task.spawn(function()makeWindow()end)
+                task.spawn(makeWindow)
             end,Variant="Primary"}}})
     
     while not PP do task.wait(0.5)end
-    
-    function makeWindow()
-        local ok2,w=pcall(function()return WI:CreateWindow({
-            Title="机场安全透视",Author="b站英吉利超入_",Icon="solar:shield-warning-bold",
-            Size=UDim2.fromOffset(750,520),ToggleKey=Enum.KeyCode.RightShift,
-            Folder="airport-esp",Acrylic=true,Transparent=true,Resizable=false,
-            SideBarWidth=180,ScrollBarEnabled=true,HideSearchBar=true,
-            OpenButton={Title="打开透视",Scale=0.5,Enabled=true,OnlyMobile=not IM,Draggable=true,
-                Color=ColorSequence.new(Color3.fromRGB(0,255,100),Color3.fromRGB(0,200,255)),
-                CornerRadius=UDim.new(1,0),StrokeThickness=3},
-            OnClose=function()S.Enabled=false;if CT.ESP then CT.ESP:Set(false)end;refreshESP();killParts()end,
-            OnOpen=function()if S.Particles then task.spawn(function()task.wait(0.8);mkParts()end)end end
-        })end)
-        if not ok2 or not w then return end
-        WN=w
-        
-        local mt=WN:Tab({Title="主控面板",Icon="solar:slider-vertical-bold"})
-        CT.ESP=mt:Toggle({Flag="ESP",Title="透视开关",Value=false,
-            Callback=function(v)S.Enabled=v;refreshESP();if v then task.spawn(doScan)end end})
-        CT.BO=mt:Toggle({Flag="BadOnly",Title="仅显示坏人",Value=false,
-            Callback=function(v)S.BadOnly=v;refreshESP()end})
-        mt:Divider()
-        CT.DT=mt:Toggle({Flag="Dist",Title="显示距离",Value=false,Callback=function(v)S.ShowDist=v end})
-        CT.HT=mt:Toggle({Flag="Health",Title="显示血量",Value=false,Callback=function(v)S.ShowHP=v end})
-        mt:Divider()
-        CT.RS=mt:Slider({Flag="Range",Title="最大探测距离",Step=50,Value={Min=50,Max=1000,Default=500},Width=200,IsTextbox=true,Callback=function(v)S.MaxRange=v end})
-        
-        local ft=WN:Tab({Title="功能设置",Icon="solar:settings-bold"})
-        CT.EK=ft:Keybind({Flag="ESPK",Title="透视开关快捷键",Value="",Callback=function(k)KB.ESP=k end})
-        CT.BK=ft:Keybind({Flag="BadK",Title="仅坏人快捷键",Value="",Callback=function(k)KB.BadOnly=k end})
-        
-        local ut=WN:Tab({Title="UI设置",Icon="solar:monitor-bold"})
-        CT.WK=ut:Keybind({Flag="WinK",Title="窗口开关",Value="RightShift",Callback=function(k)KB.Win=k end})
-        ut:Divider()
-        CT.PT=ut:Toggle({Flag="PT",Title="粒子背景",Value=true,Callback=function(v)S.Particles=v;if v then task.spawn(mkParts)else killParts()end end})
-        ut:Divider()
-        CT.AT=ut:Toggle({Flag="AT",Title="毛玻璃",Value=true,Callback=function(v)pcall(function()WI:ToggleAcrylic(v)end)end})
-        CT.TT=ut:Toggle({Flag="TT",Title="透明背景",Value=true,Callback=function(v)pcall(function()WI:ToggleAcrylic(v)end)end})
-        ut:Divider()
-        local allT={};pcall(function()allT=WI:GetThemes()end);local tn={};for n,_ in pairs(allT)do table.insert(tn,n)end;table.sort(tn)
-        CT.TD=ut:Dropdown({Flag="TD",Title="选择主题",Values=tn,Value="Dark",Callback=function(sl)if sl then S.Theme=sl;WI:SetTheme(sl);S.PColor=gtc(sl);upc()end end})
-        
-        local st=WN:Tab({Title="信息统计",Icon="solar:chart-bold"})
-        TE.GP=st:Paragraph({Title="🟢 好人: 0"})
-        TE.BP=st:Paragraph({Title="🔴 坏人: 0"})
-        TE.SP=st:Paragraph({Title="📊 总计: 0"})
-        
-        local ct=WN:Tab({Title="配置管理",Icon="solar:diskette-bold"})
-        local cni=ct:Input({Flag="CN",Title="配置名称",Value="default",Icon="solar:file-text-bold",Callback=function(v)CF=v end});ct:Space()
-        local CM=WN.ConfigManager;local AC={};pcall(function()AC=CM:AllConfigs()end)
-        local DV=nil;pcall(function()for _,v in ipairs(AC)do if v=="default"then DV="default";break end end end)
-        local ACD=ct:Dropdown({Title="已有配置",Values=AC,Value=DV,Callback=function(v)if v then CF=v;cni:Set(v)end end});ct:Space()
-        ct:Button({Title="💾 保存",Icon="solar:check-circle-bold",Justify="Center",Color=Color3.fromHex("#305dff"),
-            Callback=function()if not CM then return end;local c=CM:Config(CF);if c and c:Save()then WI:Notify({Title="✅ 已保存",Content="配置 '"..CF.."'",Duration=3,Icon="solar:check-circle-bold"});ACD:Refresh(CM:AllConfigs())end end});ct:Space()
-        ct:Button({Title="📂 加载",Icon="solar:refresh-circle-bold",Justify="Center",Color=Color3.fromHex("#10C550"),
-            Callback=function()if not CM then return end;local c=CM:CreateConfig(CF,false);if c and c:Load()then WI:Notify({Title="✅ 已加载",Content="配置 '"..CF.."'",Duration=3,Icon="solar:refresh-circle-bold"})end end});ct:Space()
-        ct:Button({Title="🗑️ 删除",Icon="solar:trash-bin-trash-bold",Justify="Center",Color=Color3.fromHex("#ff3040"),
-            Callback=function()if not CM then return end;local c=CM:Config(CF);if c and c:Delete()then WI:Notify({Title="🗑️ 已删除",Content="配置 '"..CF.."'",Duration=3,Icon="solar:trash-bin-trash-bold"});ACD:Refresh(CM:AllConfigs())end end})
-        task.spawn(function()task.wait(1);pcall(function()CM:CreateConfig("default",true)end);task.spawn(mkParts)end)
-        
-        local at=WN:Tab({Title="关于",Icon="solar:info-square-bold"})
-        at:Paragraph({Title="机场安全透视 v14.3",Desc="OpenButton/OnClose+OnOpen/WN:Toggle"})
-        at:Divider();at:Paragraph({Title="👤 作者",Desc="b站英吉利超入_"})
-        at:Divider();at:Paragraph({Title="💡 使用",Desc=IM and"手机: 点击悬浮按钮"or"PC: RightShift打开菜单"})
-        
-        U.InputBegan:Connect(function(i,g)if g then return end;if i.UserInputType~=Enum.UserInputType.Keyboard then return end;local k=i.KeyCode.Name
-            if KB.ESP and KB.ESP~=""and k==KB.ESP then S.Enabled=not S.Enabled;if CT.ESP then CT.ESP:Set(S.Enabled)end;refreshESP();if S.Enabled then task.spawn(doScan)end end
-            if KB.BadOnly and KB.BadOnly~=""and k==KB.BadOnly then S.BadOnly=not S.BadOnly;if CT.BO then CT.BO:Set(S.BadOnly)end;refreshESP()end end)
-        
-        task.spawn(function()while true do task.wait(3);pcall(function()doScan();refreshESP();updateStats()end)end end)
-    end
 else
     warn("WindUI加载失败")
 end
