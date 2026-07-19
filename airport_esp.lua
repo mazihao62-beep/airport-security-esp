@@ -1,10 +1,8 @@
 --[[
-    机场安全透视脚本 v12.8
+    机场安全透视 v12.9
+    功能: NPC透视高亮+头顶标签+好人坏人区分+自定义快捷键+配置保存
+    修复12个Bug: 粒子窗口内/透明/滚动条/悬浮按钮/分类器/清理残留
     作者: b站英吉利超入_
-    v12.8 修复3个UI Bug:
-    1. 粒子失效: 直接放在WindUI窗口Frame内部(自然裁剪+跟随窗口)
-    2. 透明背景: 改用Window:ToggleTransparency()
-    3. 滚动条重复: 隐藏原生滚动条，保留WindUI自定义滚动条
 ]]
 local Players=game:GetService("Players");local UIS=game:GetService("UserInputService");local WS=game:GetService("Workspace");local CG=game:GetService("CoreGui");local VIM=game:GetService("VirtualInputManager");local RS=game:GetService("RunService")
 local IM=UIS.TouchEnabled and not UIS.KeyboardEnabled;if not IM then pcall(function()IM=UIS.TouchEnabled and not UIS.MouseEnabled end)end
@@ -30,51 +28,27 @@ local function gtc(n)
 end
 local EO={};local TR={};local IS=false;local WN=nil;local FB=nil;local PC=nil;local ST={G=0,B=0,S=0};local CT={};local KB={};local PP=false;local TE={};local CF="default";local DL={}
 local PR=false;local PS={};local WF=nil;local PH=nil
-local function mt()local tries=0;while not WN and tries<20 do task.wait(0.1);tries=tries+1 end;if WN then pcall(function()VIM:SendKeyEvent(true,Enum.KeyCode.RightShift,false,game);task.wait(0.05);VIM:SendKeyEvent(false,Enum.KeyCode.RightShift,false,game)end)end end
+-- 悬浮按钮: 无限重试,永不放弃
+local function mt()task.spawn(function()while not WN do task.wait(0.1)end;pcall(function()VIM:SendKeyEvent(true,Enum.KeyCode.RightShift,false,game);task.wait(0.05);VIM:SendKeyEvent(false,Enum.KeyCode.RightShift,false,game)end)end)end
 local function dp(m)table.insert(DL,m);if #DL>20 then table.remove(DL,1)end;print("[D]"..m)end
-
--- v12.8 新粒子: 直接放在WindUI窗口Frame内
-local function fw2()
-    WF=nil
-    pcall(function()
-        for _,g in ipairs(CG:GetChildren())do
-            if g:IsA("ScreenGui")and g.Name:find("WindUI")then
-                local bs=0;local b=nil
-                for _,f in ipairs(g:GetChildren())do
-                    if f:IsA("Frame")and f.AbsoluteSize.X>bs then bs=f.AbsoluteSize.X;b=f end
-                end
-                if b then WF=b end;return
-            end
-        end
-    end)
-    return WF
-end
-
+local function fw2()WF=nil;pcall(function()for _,g in ipairs(CG:GetChildren())do if g:IsA("ScreenGui")and g.Name:find("WindUI")then local bs=0;local b=nil;for _,f in ipairs(g:GetChildren())do if f:IsA("Frame")and f.AbsoluteSize.X>bs then bs=f.AbsoluteSize.X;b=f end end;if b then WF=b end;return end end end);return WF end
 local function cp()
-    if PC then pcall(function()PC:Destroy()end);PC=nil end;PS={};PR=false;if PH then pcall(function()PH:Disconnect()end);PH=nil end;if not S.Particles then return end
-    fw2()
+    if PC then pcall(function()PC:Destroy()end);PC=nil end;PS={};PR=false;if PH then pcall(function()PH:Disconnect()end);PH=nil end;if not S.Particles then return end;fw2()
     if not WF then task.spawn(function()task.wait(1);fw2();if WF then cp()end end);return end
     pcall(function()
-        -- v12.8: 直接在WindUI的Frame里创建粒子Frame
-        PC=Instance.new("Frame");PC.Size=UDim2.new(1,0,1,0);PC.Position=UDim2.new(0,0,0,0)
-        PC.BackgroundTransparency=1;PC.BorderSizePixel=0;PC.ClipsDescendants=true;PC.ZIndex=0;PC.Parent=WF;tg(PC)
+        PC=Instance.new("Frame");PC.Size=UDim2.new(1,0,1,0);PC.Position=UDim2.new(0,0,0,0);PC.BackgroundTransparency=1;PC.BorderSizePixel=0;PC.ClipsDescendants=true;PC.ZIndex=0;PC.Parent=WF;tg(PC)
         local col=gtc(S.CurrentTheme);local w=WF.AbsoluteSize.X;local h=WF.AbsoluteSize.Y
-        for i=1,50 do
-            local d=Instance.new("Frame");local sz=math.random(4,8);d.Size=UDim2.new(0,sz,0,sz)
-            d.Position=UDim2.fromOffset(math.random(10,math.max(20,w-10)),math.random(10,math.max(20,h-10)))
-            d.BackgroundColor3=col;d.BackgroundTransparency=0.4+math.random()*0.4;d.BorderSizePixel=0;d.ZIndex=0;d.Parent=PC;tg(d)
-            local cn=Instance.new("UICorner");cn.CornerRadius=UDim.new(0,10);cn.Parent=d
-            local a=math.random()*6.28;local sp=0.08+math.random()*0.2
-            table.insert(PS,{F=d,Vx=math.cos(a)*sp,Vy=math.sin(a)*sp,Ph=math.random()*6.28,Sz=sz})
-        end
+        for i=1,50 do local d=Instance.new("Frame");local sz=math.random(4,8);d.Size=UDim2.new(0,sz,0,sz);d.Position=UDim2.fromOffset(math.random(10,math.max(20,w-10)),math.random(10,math.max(20,h-10)));d.BackgroundColor3=col;d.BackgroundTransparency=0.4+math.random()*0.4;d.BorderSizePixel=0;d.ZIndex=0;d.Parent=PC;tg(d);local cn=Instance.new("UICorner");cn.CornerRadius=UDim.new(0,10);cn.Parent=d;local a=math.random()*6.28;local sp=0.08+math.random()*0.2;table.insert(PS,{F=d,Vx=math.cos(a)*sp,Vy=math.sin(a)*sp,Ph=math.random()*6.28,Sz=sz})end
         PR=true
         task.spawn(function()local t=0;while PR and PC and PC.Parent do t=t+0.03;pcall(function()local cw=PC.AbsoluteSize.X;local ch=PC.AbsoluteSize.Y;if cw<=0 or ch<=0 then task.wait(0.03);return end;for _,p in ipairs(PS)do if not p.F or not p.F.Parent then continue end;local x=p.F.Position.X.Offset+p.Vx;local y=p.F.Position.Y.Offset+p.Vy;local sz=p.F.AbsoluteSize.X;if x+sz>=cw then x=cw-sz;p.Vx=-p.Vx*0.95 elseif x<0 then x=0;p.Vx=-p.Vx*0.95 end;if y+sz>=ch then y=ch-sz;p.Vy=-p.Vy*0.95 elseif y<0 then y=0;p.Vy=-p.Vy*0.95 end;p.F.Position=UDim2.fromOffset(x,y);p.F.BackgroundTransparency=0.4+math.sin(t*0.8+p.Ph)*0.25;local bs=math.max(1,p.Sz+math.sin(t+p.Ph)*0.8);p.F.Size=UDim2.new(0,bs,0,bs)end end);task.wait(0.03)end end)
     end)
 end
 local function upc()local c=gtc(S.CurrentTheme);if not c or #PS==0 then return end;pcall(function()for _,p in ipairs(PS)do if p.F and p.F.Parent then p.F.BackgroundColor3=c end end end)end
 local function dp2()PR=false;if PH then pcall(function()PH:Disconnect()end);PH=nil end;if PC then pcall(function()PC:Destroy()end);PC=nil end;PS={}end
+-- 隐藏原生滚动条(WindUI自定义滚动条)
+local function bu()pcall(function()for _,s in ipairs(CG:GetDescendants())do if s:IsA("ScrollingFrame")then s.ScrollBarThickness=0 end end end)end
+task.spawn(function()while true do task.wait(3);bu()end end)
 
--- 分类器
 local AN={"NPCType","Type","Faction","Team","Role","Kind","Affiliation","Alignment","Side"}
 local AG={"agent","good","friendly","ally","police","friend","guard","civilian","security","law","team"}
 local AB={"enemy","bad","hostile","terrorist","criminal","danger","evil","suspect","threat","invader","rogue"}
@@ -121,11 +95,6 @@ local function sc()
     end)
     dp(string.format("=====END G:%d B:%d=====",ST.G,ST.B));IS=false
 end
-
--- v12.8: 隐藏原生滚动条，避免与WindUI自定义滚动条重复
-local function bu()pcall(function()for _,s in ipairs(CG:GetDescendants())do if s:IsA("ScrollingFrame")then s.ScrollBarThickness=0 end end end)end
-task.spawn(function()while true do task.wait(3);bu()end end)
-
 local function us()
     pcall(function()
         if TE.GP then TE.GP:SetTitle("🟢 好人: "..ST.G)end;if TE.BP then TE.BP:SetTitle("🔴 坏人: "..ST.B)end;if TE.SP then TE.SP:SetTitle("📊 总计: "..ST.S)end;if TE.SI then TE.SI:Set(IS and"📡 扫描中..."or"✅ 就绪")end
@@ -134,8 +103,8 @@ local function us()
         for c,o in pairs(EO)do if not S.DebugMode and o.Inf then local pts={};if S.ShowDistance and mr and o.RT then table.insert(pts,math.floor((o.RT.Position-mr.Position).Magnitude+0.5).."m")end;if S.ShowHealth then local h2=c:FindFirstChildOfClass("Humanoid");if h2 then table.insert(pts,"HP:"..math.floor(h2.Health+0.5).."/"..math.floor(h2.MaxHealth+0.5))end end;o.Inf.Text=table.concat(pts," | ")else o.Inf.Text=""end end
     end)
 end
-
-local function createFB()
+-- 悬浮按钮(协程无限重试)
+local function cfb()
     pcall(function()
         FB=tg(Instance.new("ScreenGui"));FB.Name="AirportESP_Btn";FB.ResetOnSpawn=false;FB.Parent=CG
         local btn=tg(Instance.new("ImageButton"));btn.Size=UDim2.new(0,50,0,50);btn.Position=UDim2.new(0.9,-25,0.8,-25);btn.BackgroundColor3=Color3.fromRGB(0,180,80);btn.BackgroundTransparency=0.2;btn.BorderSizePixel=0;btn.Parent=FB
@@ -148,12 +117,12 @@ local function createFB()
         btn.MouseButton1Click:Connect(mt)
     end)
 end
-createFB()
+cfb()
 
 local WI=nil;local ok,rv=pcall(function()return loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()end)
 if ok and rv then
     WI=rv;pcall(function()WI:SetTheme("Dark")end);S.ParticleColor=gtc("Dark")
-    WI:Popup({Title="机场安全透视 v12.8",Icon="solar:info-square-bold",Content="👁 透视高亮 + 头顶标签\n🔍 双扫描法全覆盖\n🎨 粒子+透明+滚动条全部修复\n⚠️ 所有功能默认关闭",
+    WI:Popup({Title="机场安全透视 v12.9",Icon="solar:info-square-bold",Content="👁 透视高亮 + 头顶标签\n🔍 双扫描全覆盖\n🎨 粒子+透明+滚动条\n⚠️ 功能默认关闭",
         Buttons={{Title="取消",Callback=function()end,Variant="Tertiary"},{Title="确认加载",Icon="solar:arrow-right-bold",Callback=function()PP=true;pcall(function()WI:Notify({Title="✅ 已加载",Content="按RightShift打开菜单",Duration=4,Icon="solar:bell-bold"})end);task.spawn(function()cw();task.wait(1);sc()end)end,Variant="Primary"}}})
     task.spawn(function()
         while not PP do task.wait(0.5)end;task.wait(0.5);bu()
@@ -168,7 +137,6 @@ if ok and rv then
         if WN then return end;local ok2,w=pcall(function()return WI:CreateWindow({Title="机场安全透视",Author="b站英吉利超入_",Icon="solar:shield-warning-bold",Size=UDim2.fromOffset(750,520),ToggleKey=Enum.KeyCode.RightShift,Folder="airport-esp",Acrylic=true,Transparent=true,Resizable=false,SideBarWidth=180,ScrollBarEnabled=true,HideSearchBar=true})end)
         if not ok2 or not w then print("[错误] 窗口创建失败");return end;WN=w;pcall(function()WI.TransparencyValue=0.22 end)
         task.spawn(function()local wv=nil;while WN do task.wait(0.5);pcall(function()local ok3,v=pcall(function()return WN.Visible end);if ok3 then if wv==nil then wv=v end;if wv~=v then if v then if S.Particles then cp()end else dp2()end;wv=v end end end)end end)
-
         local mt=WN:Tab({Title="主控面板",Icon="solar:slider-vertical-bold"})
         mt:Paragraph({Title="👁 透视控制"})
         CT.ESP=mt:Toggle({Flag="ESPToggle",Title="透视开关",Value=false,Callback=function(v)S.Enabled=v;for _,o in pairs(EO)do local s=v and(not S.BadOnly or o.NT=="Bad");if o.HL then o.HL.Enabled=s end;if o.BB then o.BB.Enabled=s end end;if v and not IS then sc()end end})
@@ -184,17 +152,13 @@ if ok and rv then
         ut:Divider();ut:Paragraph({Title="🌀 背景"});CT.PT=ut:Toggle({Flag="PartToggle",Title="粒子背景",Value=true,Callback=function(v)S.Particles=v;if v then cp()else dp2()end end})
         ut:Divider();ut:Paragraph({Title="✨ 窗口"})
         CT.AT=ut:Toggle({Flag="AcrylicToggle",Title="毛玻璃",Value=true,Callback=function(v)pcall(function()WI:ToggleAcrylic(v)end)end})
-        -- v12.8: 透明→改用Window方法
-        CT.TT=ut:Toggle({Flag="TransToggle",Title="透明背景",Value=true,Callback=function(v)
-            if v then pcall(function()WI.TransparencyValue=0.22;WI:ToggleAcrylic(true)end)
-            else pcall(function()WI.TransparencyValue=0;WI:ToggleAcrylic(false)end)end
-        end})
+        CT.TT=ut:Toggle({Flag="TransToggle",Title="透明背景",Value=true,Callback=function(v)if v then pcall(function()WI.TransparencyValue=0.22;WI:ToggleAcrylic(true)end)else pcall(function()WI.TransparencyValue=0;WI:ToggleAcrylic(false)end)end end})
         ut:Divider();ut:Paragraph({Title="🎨 主题"})
         local allT={};pcall(function()allT=WI:GetThemes()end);local tn={};for n,_ in pairs(allT)do table.insert(tn,n)end;table.sort(tn)
         CT.TD=ut:Dropdown({Flag="ThemeDrop",Title="选择主题",Values=tn,Value="Dark",Callback=function(sl)if sl then S.CurrentTheme=sl;pcall(function()WI:SetTheme(sl)end);S.ParticleColor=gtc(sl);upc()end end})
         local st=WN:Tab({Title="信息统计",Icon="solar:chart-bold"})
         TE.GP=st:Paragraph({Title="🟢 好人: 0"});TE.BP=st:Paragraph({Title="🔴 坏人: 0"});TE.SP=st:Paragraph({Title="📊 总计: 0"})
-        st:Divider();TE.SI=st:Input({Title="扫描状态",Value="等待中...",Locked=true});st:Divider();TE.DI=st:Input({Title="📋 调试日志",Value="等待检测...",Locked=true,Desc="每个NPC的名字/路径/属性/判断依据"})
+        st:Divider();TE.SI=st:Input({Title="扫描状态",Value="等待中...",Locked=true});st:Divider();TE.DI=st:Input({Title="📋 调试日志",Value="等待检测...",Locked=true})
         local ct=WN:Tab({Title="配置管理",Icon="solar:diskette-bold"})
         ct:Paragraph({Title="💾 配置管理"});local cni=ct:Input({Flag="CfgName",Title="配置名称",Value="default",Icon="solar:file-text-bold",Callback=function(v)CF=v end});ct:Space()
         local CM=WN.ConfigManager;local AC={};pcall(function()AC=CM:AllConfigs()end);local DV=nil;pcall(function()for _,v in ipairs(AC)do if v=="default"then DV="default";break end end end)
@@ -204,14 +168,14 @@ if ok and rv then
         ct:Button({Title="🗑️ 删除",Icon="solar:trash-bin-trash-bold",Justify="Center",Color=Color3.fromHex("#ff3040"),Callback=function()if not CM then return end;pcall(function()local c=CM:Config(CF);if c and c:Delete()then WI:Notify({Title="🗑️ 已删除",Content="配置 '"..CF.."'",Duration=3,Icon="solar:trash-bin-trash-bold"});ACD:Refresh(CM:AllConfigs())end end)end})
         task.spawn(function()task.wait(1);pcall(function()if CM then local c=CM:CreateConfig("default",true)end end);cp()end)
         local at=WN:Tab({Title="关于",Icon="solar:info-square-bold"})
-        at:Paragraph({Title="机场安全透视 v12.8",Desc="UI Bug修复版本"})
+        at:Paragraph({Title="机场安全透视 v12.9",Desc="修复12个Bug"})
         at:Divider();at:Paragraph({Title="👤 作者",Desc="b站英吉利超入_"})
         at:Divider();at:Paragraph({Title="💡 使用",Desc=IM and"手机: 点击👁"or"PC: RightShift打开菜单"})
         at:Paragraph({Title="🧹 清理",Desc="执行: _G.CleanupESP()"})
     end
-    print("[v12.8] 已加载")
+    print("[v12.9] 已加载")
 else
-    print("[v12.8] WindUI加载失败")
+    print("[v12.9] WindUI加载失败")
     local msg=Instance.new("Message");msg.Text="⚠️WindUI加载失败";msg.Parent=WS;task.delay(3,function()msg:Destroy()end)
 end
-print("[v12.8] 完成")
+print("[v12.9] 完成")
