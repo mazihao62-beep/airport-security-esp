@@ -1,7 +1,7 @@
 --[[
-    机场安全透视 v14.2
+    机场安全透视 v14.3
     功能: NPC透视+头顶标签+分类+快捷键+配置保存
-    修复: 递归scanProps/S.Particles缺失/BB.MaxDistance
+    修复: WindUI内置OpenButton/Window:Toggle/移除手工按钮
     作者: b站英吉利超入_
 ]]
 local P=game:GetService("Players")
@@ -22,7 +22,6 @@ local function clean()
 end
 clean()
 
--- 递归搜索Properties内部(Configuration/Folder嵌套)
 local function rFind(inst,name)
     local f=inst:FindFirstChild(name)
     if f then return f end
@@ -73,7 +72,7 @@ end
 local S={Enabled=false,BadOnly=false,ShowDist=false,ShowHP=false,MaxRange=500,Theme="Dark",Particles=true,PColor=Color3.fromRGB(80,170,255)}
 local H={}
 local GC=0;local BC=0;local SC=0
-local WN=nil;local WI=nil;local FB=nil;local PC=nil;local CT={};local KB={};local TE={};local PS={};local PR=false;local PP=false;local CF="default"
+local WN=nil;local WI=nil;local PC=nil;local CT={};local KB={};local TE={};local PS={};local PR=false;local PP=false;local CF="default"
 
 local function makeESP(c,nt)
     if not c or not c.Parent then return end
@@ -158,29 +157,12 @@ local function updateStats()
     end)
 end
 
--- 悬浮按钮
-local function makeBtn()
-    pcall(function()
-        FB=Instance.new("ScreenGui");FB.Name="A";FB.ResetOnSpawn=false;FB.Parent=C
-        local b=Instance.new("ImageButton");b.Size=UDim2.new(0,50,0,50);b.Position=UDim2.new(0.9,-25,0.8,-25)
-        b.BackgroundColor3=Color3.fromRGB(0,180,80);b.BackgroundTransparency=0.2;b.BorderSizePixel=0;b.Parent=FB
-        Instance.new("UICorner",b).CornerRadius=UDim.new(0,25)
-        local t=Instance.new("TextLabel");t.Size=UDim2.new(1,0,1,0);t.BackgroundTransparency=1
-        t.Text="眼";t.TextScaled=true;t.Font=Enum.Font.SourceSansBold;t.TextColor3=Color3.fromRGB(255,255,255);t.Parent=b
-        local d,ds,sp=false,nil,nil
-        b.InputBegan:Connect(function(i)if i.UserInputType==Enum.UserInputType.Touch or i.UserInputType==Enum.UserInputType.MouseButton1 then d=true;ds=i.Position;sp=b.Position end end)
-        b.InputChanged:Connect(function(i)if d and(i.UserInputType==Enum.UserInputType.Touch or i.UserInputType==Enum.UserInputType.MouseMovement)then local nx=sp.X.Scale+(i.Position.X-ds.X)/800;local ny=sp.Y.Scale+(i.Position.Y-ds.Y)/600;nx=math.max(0.02,math.min(0.95,nx));ny=math.max(0.02,math.min(0.95,ny));b.Position=UDim2.new(nx,0,ny,0)end end)
-        b.InputEnded:Connect(function(i)if i.UserInputType==Enum.UserInputType.Touch or i.UserInputType==Enum.UserInputType.MouseButton1 then d=false end end)
-        b.MouseButton1Click:Connect(function()if WN then WN.Visible=not WN.Visible end end)
-    end)
-end
-makeBtn()
-
--- 粒子
+-- 粒子（WindUI内置OpenButton后，粒子挂载方式不变）
 local function mkParts()
     if not PP then return end
     if PC then return end
     local wf=nil
+    task.wait(0.5) -- 等WindUI窗口完全渲染
     pcall(function()
         for _,g in ipairs(C:GetChildren())do
             if g:IsA("ScreenGui")and g.Name:find("WindUI")then
@@ -247,7 +229,7 @@ end
 local ok,rv=pcall(function()return loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()end)
 if ok and rv then
     WI=rv;WI:SetTheme("Dark");S.PColor=gtc("Dark")
-    WI:Popup({Title="机场安全透视 v14.2",Icon="solar:info-square-bold",
+    WI:Popup({Title="机场安全透视 v14.3",Icon="solar:info-square-bold",
         Content="👁 NPC透视高亮+头顶标签\n🔍 递归Properties深度扫描分类\n⚠️ 功能默认关闭",
         Buttons={{Title="取消",Callback=function()end,Variant="Tertiary"},
             {Title="确认加载",Icon="solar:arrow-right-bold",Callback=function()
@@ -262,10 +244,13 @@ if ok and rv then
         local ok2,w=pcall(function()return WI:CreateWindow({
             Title="机场安全透视",Author="b站英吉利超入_",Icon="solar:shield-warning-bold",
             Size=UDim2.fromOffset(750,520),ToggleKey=Enum.KeyCode.RightShift,
-            Folder="airport-esp",Acrylic=true,Resizable=false,
+            Folder="airport-esp",Acrylic=true,Transparent=true,Resizable=false,
             SideBarWidth=180,ScrollBarEnabled=true,HideSearchBar=true,
+            OpenButton={Title="打开透视",Scale=0.5,Enabled=true,OnlyMobile=not IM,Draggable=true,
+                Color=ColorSequence.new(Color3.fromRGB(0,255,100),Color3.fromRGB(0,200,255)),
+                CornerRadius=UDim.new(1,0),StrokeThickness=3},
             OnClose=function()S.Enabled=false;if CT.ESP then CT.ESP:Set(false)end;refreshESP();killParts()end,
-            OnOpen=function()if S.Particles then task.spawn(mkParts)end end
+            OnOpen=function()if S.Particles then task.spawn(function()task.wait(0.8);mkParts()end)end end
         })end)
         if not ok2 or not w then return end
         WN=w
@@ -287,7 +272,6 @@ if ok and rv then
         
         local ut=WN:Tab({Title="UI设置",Icon="solar:monitor-bold"})
         CT.WK=ut:Keybind({Flag="WinK",Title="窗口开关",Value="RightShift",Callback=function(k)KB.Win=k end})
-        CT.FB=ut:Toggle({Flag="FB",Title="悬浮按钮",Value=true,Callback=function(v)if FB then FB.Enabled=v end end})
         ut:Divider()
         CT.PT=ut:Toggle({Flag="PT",Title="粒子背景",Value=true,Callback=function(v)S.Particles=v;if v then task.spawn(mkParts)else killParts()end end})
         ut:Divider()
@@ -316,7 +300,7 @@ if ok and rv then
         task.spawn(function()task.wait(1);pcall(function()CM:CreateConfig("default",true)end);task.spawn(mkParts)end)
         
         local at=WN:Tab({Title="关于",Icon="solar:info-square-bold"})
-        at:Paragraph({Title="机场安全透视 v14.2",Desc="递归scanProps/粒子OnOpen/BB.MaxDistance"})
+        at:Paragraph({Title="机场安全透视 v14.3",Desc="OpenButton/OnClose+OnOpen/WN:Toggle"})
         at:Divider();at:Paragraph({Title="👤 作者",Desc="b站英吉利超入_"})
         at:Divider();at:Paragraph({Title="💡 使用",Desc=IM and"手机: 点击悬浮按钮"or"PC: RightShift打开菜单"})
         
