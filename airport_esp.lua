@@ -1,7 +1,7 @@
 --[[
-    机场安全透视 v13.1
+    机场安全透视 v13.2
     功能: NPC透视高亮+头顶标签+好人坏人区分+自定义快捷键+配置保存
-    修复Bug: 基于运行时Properties深度扫描分类器
+    修复: 头顶标签半透明/粒子ZIndex/透明开关/高亮强度
     作者: b站英吉利超入_
 ]]
 local Players=game:GetService("Players");local UIS=game:GetService("UserInputService");local WS=game:GetService("Workspace");local CG=game:GetService("CoreGui");local VIM=game:GetService("VirtualInputManager");local RS=game:GetService("RunService")
@@ -39,9 +39,9 @@ local function cp()
     if PC then pcall(function()PC:Destroy()end);PC=nil end;PS={};PR=false;if PH then pcall(function()PH:Disconnect()end);PH=nil end;if not S.Particles then return end;fw2()
     if not WF then task.spawn(function()task.wait(1);fw2();if WF then cp()end end);return end
     pcall(function()
-        PC=Instance.new("Frame");PC.Size=UDim2.new(1,0,1,0);PC.Position=UDim2.new(0,0,0,0);PC.BackgroundTransparency=1;PC.BorderSizePixel=0;PC.ClipsDescendants=true;PC.ZIndex=0;PC.Parent=WF;tg(PC)
+        PC=Instance.new("Frame");PC.Size=UDim2.new(1,0,1,0);PC.Position=UDim2.new(0,0,0,0);PC.BackgroundTransparency=1;PC.BorderSizePixel=0;PC.ClipsDescendants=true;PC.ZIndex=5;PC.Parent=WF;tg(PC)
         local col=gtc(S.CurrentTheme);local w=WF.AbsoluteSize.X;local h=WF.AbsoluteSize.Y
-        for i=1,50 do local d=Instance.new("Frame");local sz=math.random(4,8);d.Size=UDim2.new(0,sz,0,sz);d.Position=UDim2.fromOffset(math.random(10,math.max(20,w-10)),math.random(10,math.max(20,h-10)));d.BackgroundColor3=col;d.BackgroundTransparency=0.4+math.random()*0.4;d.BorderSizePixel=0;d.ZIndex=0;d.Parent=PC;tg(d);local cn=Instance.new("UICorner");cn.CornerRadius=UDim.new(0,10);cn.Parent=d;local a=math.random()*6.28;local sp=0.08+math.random()*0.2;table.insert(PS,{F=d,Vx=math.cos(a)*sp,Vy=math.sin(a)*sp,Ph=math.random()*6.28,Sz=sz})end
+        for i=1,50 do local d=Instance.new("Frame");local sz=math.random(4,8);d.Size=UDim2.new(0,sz,0,sz);d.Position=UDim2.fromOffset(math.random(10,math.max(20,w-10)),math.random(10,math.max(20,h-10)));d.BackgroundColor3=col;d.BackgroundTransparency=0.4+math.random()*0.4;d.BorderSizePixel=0;d.ZIndex=5;d.Parent=PC;tg(d);local cn=Instance.new("UICorner");cn.CornerRadius=UDim.new(0,10);cn.Parent=d;local a=math.random()*6.28;local sp=0.08+math.random()*0.2;table.insert(PS,{F=d,Vx=math.cos(a)*sp,Vy=math.sin(a)*sp,Ph=math.random()*6.28,Sz=sz})end
         PR=true
         task.spawn(function()local t=0;while PR and PC and PC.Parent do t=t+0.03;pcall(function()local cw=PC.AbsoluteSize.X;local ch=PC.AbsoluteSize.Y;if cw<=0 or ch<=0 then task.wait(0.03);return end;for _,p in ipairs(PS)do if not p.F or not p.F.Parent then continue end;local x=p.F.Position.X.Offset+p.Vx;local y=p.F.Position.Y.Offset+p.Vy;local sz=p.F.AbsoluteSize.X;if x+sz>=cw then x=cw-sz;p.Vx=-p.Vx*0.95 elseif x<0 then x=0;p.Vx=-p.Vx*0.95 end;if y+sz>=ch then y=ch-sz;p.Vy=-p.Vy*0.95 elseif y<0 then y=0;p.Vy=-p.Vy*0.95 end;p.F.Position=UDim2.fromOffset(x,y);p.F.BackgroundTransparency=0.4+math.sin(t*0.8+p.Ph)*0.25;local bs=math.max(1,p.Sz+math.sin(t+p.Ph)*0.8);p.F.Size=UDim2.new(0,bs,0,bs)end end);task.wait(0.03)end end)
     end)
@@ -50,7 +50,7 @@ local function upc()local c=gtc(S.CurrentTheme);if not c or #PS==0 then return e
 local function dp2()PR=false;if PH then pcall(function()PH:Disconnect()end);PH=nil end;if PC then pcall(function()PC:Destroy()end);PC=nil end;PS={}end
 local function bu()pcall(function()for _,s in ipairs(CG:GetDescendants())do if s:IsA("ScrollingFrame")then s.ScrollBarThickness=0 end end end)end
 task.spawn(function()while true do task.wait(3);bu()end end)
--- 分类器 v13.1: Properties深度扫描
+-- 分类器 v13.2: Properties深度扫描
 local function scanProperties(model)
     if not model then return nil, nil end
     local props = model:FindFirstChild("Properties")
@@ -83,14 +83,12 @@ local function me(c,nt)
     local mc=Players.LocalPlayer and Players.LocalPlayer.Character;local mr=mc and(mc:FindFirstChild("HumanoidRootPart")or mc:FindFirstChild("Torso"))
     if mr and rt and(rt.Position-mr.Position).Magnitude>S.MaxRange then return end
     local en=S.Enabled and(not S.BadOnly or nt=="Bad");local col=nt=="Good"and Color3.fromRGB(0,255,80)or Color3.fromRGB(255,40,40)
-    local hl=tg(Instance.new("Highlight"));hl.Adornee=c;hl.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop;hl.FillTransparency=0.35;hl.OutlineTransparency=0.15;hl.FillColor=col;hl.OutlineColor=Color3.fromRGB(255,255,255);hl.Enabled=en;hl.Parent=CG
+    local hl=tg(Instance.new("Highlight"));hl.Adornee=c;hl.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop;hl.FillTransparency=0.15;hl.OutlineTransparency=0;hl.FillColor=col;hl.OutlineColor=Color3.fromRGB(255,255,255);hl.Enabled=en;hl.Parent=CG
     local hd=c:FindFirstChild("Head")or rt
-    local bb=tg(Instance.new("BillboardGui"));bb.Adornee=hd;bb.Size=UDim2.new(0,180,0,60);bb.StudsOffset=Vector3.new(0,3,0);bb.AlwaysOnTop=true;bb.Enabled=en;bb.Parent=CG
-    local bg=tg(Instance.new("Frame"));bg.Size=UDim2.new(1,0,1,0);bg.BackgroundColor3=Color3.fromRGB(0,0,0);bg.BackgroundTransparency=0.3;bg.BorderSizePixel=0;bg.Parent=bb;tg(Instance.new("UICorner"));bg.UICorner.CornerRadius=UDim.new(0,4)
-    local lb=tg(Instance.new("TextLabel"));lb.Size=UDim2.new(1,-4,0.5,0);lb.Position=UDim2.new(0,2,0,1);lb.BackgroundTransparency=1;lb.TextColor3=col;lb.TextScaled=true;lb.Font=Enum.Font.SourceSansBold;lb.Text=nt=="Good"and"👮 好人"or"💀 坏人";lb.BorderSizePixel=0;lb.Parent=bg
-    local inf=tg(Instance.new("TextLabel"));inf.Size=UDim2.new(1,-4,0.4,0);inf.Position=UDim2.new(0,2,0.5,2);inf.BackgroundTransparency=1;inf.TextColor3=Color3.fromRGB(220,220,220);inf.TextScaled=true;inf.Font=Enum.Font.SourceSans;inf.Text="";inf.BorderSizePixel=0;inf.Parent=bg
-    if S.DebugMode then local at="";pcall(function()local pv=c:FindFirstChild("Properties");if pv then for _,ch in ipairs(pv:GetChildren())do if ch:IsA("Configuration")or ch:IsA("Folder")then for _,val in ipairs(ch:GetChildren())do if val:IsA("BoolValue")then at=at..ch.Name.."."..val.Name.."="..tostring(val.Value).." "end end end end end end);inf.Text=c.Name..(at~=""and(" | "..at)or"")end
-    EO[c]={HL=hl,BB=bb,LB=lb,Inf=inf,HD=hd,RT=rt,NT=nt};ST.S=ST.S+1;TR[c]=nt
+    local bb=tg(Instance.new("BillboardGui"));bb.Adornee=hd;bb.Size=UDim2.new(0,180,0,48);bb.StudsOffset=Vector3.new(0,3,0);bb.AlwaysOnTop=true;bb.Enabled=en;bb.Parent=CG
+    local bg=tg(Instance.new("Frame"));bg.Size=UDim2.new(1,0,1,0);bg.BackgroundColor3=Color3.fromRGB(0,0,0);bg.BackgroundTransparency=0.75;bg.BorderSizePixel=0;bg.Parent=bb;tg(Instance.new("UICorner"));bg.UICorner.CornerRadius=UDim.new(0,6)
+    local lb=tg(Instance.new("TextLabel"));lb.Size=UDim2.new(1,-4,1,0);lb.Position=UDim2.new(0,2,0,0);lb.BackgroundTransparency=1;lb.TextColor3=col;lb.TextScaled=true;lb.Font=Enum.Font.SourceSansBold;lb.Text=nt=="Good"and"👮 好人"or"💀 坏人";lb.BorderSizePixel=0;lb.Parent=bg
+    EO[c]={HL=hl,BB=bb,LB=lb,HD=hd,RT=rt,NT=nt};ST.S=ST.S+1;TR[c]=nt
 end
 local function sc()
     if IS then return end;IS=true;ST.G=0;ST.B=0;ST.S=0;local viewed={}
@@ -104,7 +102,7 @@ local function us()
         if TE.GP then TE.GP:SetTitle("🟢 好人: "..ST.G)end;if TE.BP then TE.BP:SetTitle("🔴 坏人: "..ST.B)end;if TE.SP then TE.SP:SetTitle("📊 总计: "..ST.S)end;if TE.SI then TE.SI:Set(IS and"📡 扫描中..."or"✅ 就绪")end
         if TE.DI then local ls={};for i=math.max(1,#DL-3),#DL do table.insert(ls,DL[i])end;TE.DI:Set(table.concat(ls,"\n"))end
         local mc=Players.LocalPlayer and Players.LocalPlayer.Character;local mr=mc and(mc:FindFirstChild("HumanoidRootPart")or mc:FindFirstChild("Torso"))
-        for c,o in pairs(EO)do if not S.DebugMode and o.Inf then local pts={};if S.ShowDistance and mr and o.RT then table.insert(pts,math.floor((o.RT.Position-mr.Position).Magnitude+0.5).."m")end;if S.ShowHealth then local h2=c:FindFirstChildOfClass("Humanoid");if h2 then table.insert(pts,"HP:"..math.floor(h2.Health+0.5).."/"..math.floor(h2.MaxHealth+0.5))end end;o.Inf.Text=table.concat(pts," | ")else o.Inf.Text=""end end
+        for c,o in pairs(EO)do if o.LB then local pts={};if S.ShowDistance and mr and o.RT then table.insert(pts,math.floor((o.RT.Position-mr.Position).Magnitude+0.5).."m")end;if S.ShowHealth then local h2=c:FindFirstChildOfClass("Humanoid");if h2 then table.insert(pts,"HP:"..math.floor(h2.Health+0.5).."/"..math.floor(h2.MaxHealth+0.5))end end;local txt=o.LB.Text;if #pts>0 then txt=txt.."\n"..table.concat(pts," | ")end;o.LB.Text=txt end end
     end)
 end
 local function cfb()
@@ -125,7 +123,7 @@ cfb()
 local WI=nil;local ok,rv=pcall(function()return loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()end)
 if ok and rv then
     WI=rv;pcall(function()WI:SetTheme("Dark")end);S.ParticleColor=gtc("Dark")
-    WI:Popup({Title="机场安全透视 v13.1",Icon="solar:info-square-bold",Content="👁 透视高亮 + 头顶标签\n🔍 基于Properties深度扫描分类\n🎨 粒子+透明+滚动条\n⚠️ 功能默认关闭",
+    WI:Popup({Title="机场安全透视 v13.2",Icon="solar:info-square-bold",Content="👁 透视高亮 + 头顶标签\n🔍 基于Properties深度扫描分类\n🎨 粒子+透明+滚动条\n⚠️ 功能默认关闭",
         Buttons={{Title="取消",Callback=function()end,Variant="Tertiary"},{Title="确认加载",Icon="solar:arrow-right-bold",Callback=function()PP=true;pcall(function()WI:Notify({Title="✅ 已加载",Content="按RightShift打开菜单",Duration=4,Icon="solar:bell-bold"})end);task.spawn(function()cw();task.wait(1);sc()end)end,Variant="Primary"}}})
     task.spawn(function()
         while not PP do task.wait(0.5)end;task.wait(0.5);bu()
@@ -138,7 +136,7 @@ if ok and rv then
     function cw()
         if WN then return end;local ok2,w=pcall(function()return WI:CreateWindow({Title="机场安全透视",Author="b站英吉利超入_",Icon="solar:shield-warning-bold",Size=UDim2.fromOffset(750,520),ToggleKey=Enum.KeyCode.RightShift,Folder="airport-esp",Acrylic=true,Transparent=true,Resizable=false,SideBarWidth=180,ScrollBarEnabled=true,HideSearchBar=true,
             OnClose=function()disableESP();dp2()end,OnOpen=function()if S.Particles then cp()end end})end)
-        if not ok2 or not w then print("[错误] 窗口创建失败");return end;WN=w;pcall(function()WI.TransparencyValue=0.22 end)
+        if not ok2 or not w then print("[错误] 窗口创建失败");return end;WN=w;
         task.spawn(function()local wv=nil;while WN do task.wait(0.5);pcall(function()local ok3,v=pcall(function()return WN.Visible end);if ok3 then if wv==nil then wv=v end;if wv~=v then if v then if S.Particles then cp()end else disableESP();dp2()end;wv=v end end end)end end)
         local mt=WN:Tab({Title="主控面板",Icon="solar:slider-vertical-bold"})
         mt:Paragraph({Title="👁 透视控制"})
@@ -155,7 +153,7 @@ if ok and rv then
         ut:Divider();ut:Paragraph({Title="🌀 背景"});CT.PT=ut:Toggle({Flag="PartToggle",Title="粒子背景",Value=true,Callback=function(v)S.Particles=v;if v then cp()else dp2()end end})
         ut:Divider();ut:Paragraph({Title="✨ 窗口"})
         CT.AT=ut:Toggle({Flag="AcrylicToggle",Title="毛玻璃",Value=true,Callback=function(v)pcall(function()WI:ToggleAcrylic(v)end)end})
-        CT.TT=ut:Toggle({Flag="TransToggle",Title="透明背景",Value=true,Callback=function(v)if v then pcall(function()WI.TransparencyValue=0.22;WI:ToggleAcrylic(true)end)else pcall(function()WI.TransparencyValue=0;WI:ToggleAcrylic(false)end)end end})
+        CT.TT=ut:Toggle({Flag="TransToggle",Title="透明背景",Value=true,Callback=function(v)pcall(function()WI:ToggleAcrylic(v)end)end})
         ut:Divider();ut:Paragraph({Title="🎨 主题"})
         local allT={};pcall(function()allT=WI:GetThemes()end);local tn={};for n,_ in pairs(allT)do table.insert(tn,n)end;table.sort(tn)
         CT.TD=ut:Dropdown({Flag="ThemeDrop",Title="选择主题",Values=tn,Value="Dark",Callback=function(sl)if sl then S.CurrentTheme=sl;pcall(function()WI:SetTheme(sl)end);S.ParticleColor=gtc(sl);upc()end end})
@@ -171,14 +169,14 @@ if ok and rv then
         ct:Button({Title="🗑️ 删除",Icon="solar:trash-bin-trash-bold",Justify="Center",Color=Color3.fromHex("#ff3040"),Callback=function()if not CM then return end;pcall(function()local c=CM:Config(CF);if c and c:Delete()then WI:Notify({Title="🗑️ 已删除",Content="配置 '"..CF.."'",Duration=3,Icon="solar:trash-bin-trash-bold"});ACD:Refresh(CM:AllConfigs())end end)end})
         task.spawn(function()task.wait(1);pcall(function()if CM then local c=CM:CreateConfig("default",true)end end);cp()end)
         local at=WN:Tab({Title="关于",Icon="solar:info-square-bold"})
-        at:Paragraph({Title="机场安全透视 v13.1",Desc="基于Properties深度扫描分类器"})
+        at:Paragraph({Title="机场安全透视 v13.2",Desc="v13.2: 修复头顶标签背景/粒子ZIndex/透明开关/高亮强度"})
         at:Divider();at:Paragraph({Title="👤 作者",Desc="b站英吉利超入_"})
         at:Divider();at:Paragraph({Title="💡 使用",Desc=IM and"手机: 点击👁"or"PC: RightShift打开菜单"})
         at:Paragraph({Title="🧹 清理",Desc="执行: _G.CleanupESP()"})
     end
-    print("[v13.1] 已加载")
+    print("[v13.2] 已加载")
 else
-    print("[v13.1] WindUI加载失败")
+    print("[v13.2] WindUI加载失败")
     local msg=Instance.new("Message");msg.Text="⚠️WindUI加载失败";msg.Parent=WS;task.delay(3,function()msg:Destroy()end)
 end
-print("[v13.1] 完成")
+print("[v13.2] 完成")
