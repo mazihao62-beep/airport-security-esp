@@ -1,7 +1,7 @@
 --[[
-    机场安全透视 v14.4
+    机场安全透视 v14.5
     功能: NPC透视+头顶标签+分类+快捷键+配置保存
-    修复: makeWindow提前定义/clean清WindUI重复/AT-TT分离/OnlyMobile修正
+    修复: 粒子ZIndex=100+透明度降低+内容Frame查找
     作者: b站英吉利超入_
 ]]
 local P=game:GetService("Players")
@@ -159,30 +159,42 @@ local function updateStats()
     end)
 end
 
--- 粒子
+-- 粒子（ZIndex=100 确保不被WindUI内容遮挡）
+local function findContentFrame()
+    for _,g in ipairs(C:GetChildren())do
+        if g:IsA("ScreenGui")and g.Name:find("WindUI")then
+            -- 优先找ScrollingFrame（WindUI的内容区域）
+            for _,sf in ipairs(g:GetDescendants())do
+                if sf:IsA("ScrollingFrame")and sf.AbsoluteSize.X>400 and sf.AbsoluteSize.Y>200 then
+                    return sf
+                end
+            end
+            -- 备选：找最大的Frame
+            local bs=0;local best=nil
+            for _,f in ipairs(g:GetDescendants())do
+                if f:IsA("Frame")and f.AbsoluteSize.X>bs then bs=f.AbsoluteSize.X;best=f end
+            end
+            return best
+        end
+    end
+    return nil
+end
+
 local function mkParts()
     if not PP then return end
     if PC then return end
-    task.wait(0.5)
-    local wf=nil
-    pcall(function()
-        for _,g in ipairs(C:GetChildren())do
-            if g:IsA("ScreenGui")and g.Name:find("WindUI")then
-                for _,f in ipairs(g:GetChildren())do
-                    if f:IsA("Frame")and f.AbsoluteSize.X>700 then wf=f;break end
-                end
-            end
-        end
-    end)
+    task.wait(0.8)
+    local wf=findContentFrame()
+    if not wf then task.wait(1);wf=findContentFrame()end
     if not wf then return end
     PC=Instance.new("Frame");PC.Size=UDim2.new(1,0,1,0);PC.BackgroundTransparency=1;PC.BorderSizePixel=0
-    PC.ClipsDescendants=true;PC.ZIndex=5;PC.Parent=wf
+    PC.ClipsDescendants=true;PC.ZIndex=100;PC.Parent=wf
     local col=S.PColor;local w=wf.AbsoluteSize.X;local h=wf.AbsoluteSize.Y
     if w<=0 then return end
     for i=1,50 do
-        local d=Instance.new("Frame");local sz=math.random(4,8);d.Size=UDim2.new(0,sz,0,sz)
+        local d=Instance.new("Frame");local sz=math.random(5,10);d.Size=UDim2.new(0,sz,0,sz)
         d.Position=UDim2.fromOffset(math.random(10,math.max(20,w-10)),math.random(10,math.max(20,h-10)))
-        d.BackgroundColor3=col;d.BackgroundTransparency=0.4+math.random()*0.4;d.BorderSizePixel=0;d.ZIndex=5;d.Parent=PC
+        d.BackgroundColor3=col;d.BackgroundTransparency=0.2+math.random()*0.4;d.BorderSizePixel=0;d.ZIndex=100;d.Parent=PC
         Instance.new("UICorner",d).CornerRadius=UDim.new(0,10)
         local a=math.random()*6.28;local sp=0.08+math.random()*0.2
         table.insert(PS,{F=d,Vx=math.cos(a)*sp,Vy=math.sin(a)*sp,Ph=math.random()*6.28,Sz=sz})
@@ -196,8 +208,8 @@ local function mkParts()
                 local x=p.F.Position.X.Offset+p.Vx;local y=p.F.Position.Y.Offset+p.Vy;local sz=p.F.AbsoluteSize.X
                 if x+sz>=cw then x=cw-sz;p.Vx=-p.Vx*0.95 elseif x<0 then x=0;p.Vx=-p.Vx*0.95 end
                 if y+sz>=ch then y=ch-sz;p.Vy=-p.Vy*0.95 elseif y<0 then y=0;p.Vy=-p.Vy*0.95 end
-                p.F.Position=UDim2.fromOffset(x,y);p.F.BackgroundTransparency=0.4+math.sin(t*0.8+p.Ph)*0.25
-                local bs=math.max(1,p.Sz+math.sin(t+p.Ph)*0.8);p.F.Size=UDim2.new(0,bs,0,bs)
+                p.F.Position=UDim2.fromOffset(x,y);p.F.BackgroundTransparency=0.2+math.sin(t*0.8+p.Ph)*0.3
+                local bs=math.max(2,p.Sz+math.sin(t+p.Ph)*1);p.F.Size=UDim2.new(0,bs,0,bs)
             end
         end
     end);task.wait(0.03)end end)
@@ -227,7 +239,6 @@ local function gtc(n)
     return Color3.fromRGB(80,170,255)
 end
 
--- makeWindow 提前定义（修复 race condition）
 local function makeWindow()
     local ok2,w=pcall(function()return WI:CreateWindow({
         Title="机场安全透视",Author="b站英吉利超入_",Icon="solar:shield-warning-bold",
@@ -288,7 +299,7 @@ local function makeWindow()
     task.spawn(function()task.wait(1);pcall(function()CM:CreateConfig("default",true)end);task.spawn(mkParts)end)
     
     local at=WN:Tab({Title="关于",Icon="solar:info-square-bold"})
-    at:Paragraph({Title="机场安全透视 v14.4",Desc="makeWindow提前/clean修复/AT-TT分离/OnlyMobile"})
+    at:Paragraph({Title="机场安全透视 v14.5",Desc="粒子Z100+ScrollingFrame+更低透明度"})
     at:Divider();at:Paragraph({Title="👤 作者",Desc="b站英吉利超入_"})
     at:Divider();at:Paragraph({Title="💡 使用",Desc=IM and"手机: 点击悬浮按钮"or"PC: RightShift打开菜单"})
     
@@ -302,7 +313,7 @@ end
 local ok,rv=pcall(function()return loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()end)
 if ok and rv then
     WI=rv;WI:SetTheme("Dark");S.PColor=gtc("Dark")
-    WI:Popup({Title="机场安全透视 v14.4",Icon="solar:info-square-bold",
+    WI:Popup({Title="机场安全透视 v14.5",Icon="solar:info-square-bold",
         Content="👁 NPC透视高亮+头顶标签\n🔍 递归Properties深度扫描分类\n⚠️ 功能默认关闭",
         Buttons={{Title="取消",Callback=function()end,Variant="Tertiary"},
             {Title="确认加载",Icon="solar:arrow-right-bold",Callback=function()
