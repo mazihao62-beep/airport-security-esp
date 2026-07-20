@@ -1,24 +1,41 @@
+-- 机场安全透视 v16.3
+-- 作者: b站英吉利超入_
+-- 修复: 移除OpenButton防ToggleKey冲突 + KB初始化
 local rC,mR,LO,WI=0,6,false,nil
 while rC<mR and not LO do
     local ok,rv=pcall(function()return loadstring(game:HttpGet("https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"))()end)
-    if ok and rv then WI=rv;LO=true else rC=rC+1;if rC<mR then task.wait(1.5)end end end
-if not LO then local msg=Instance.new("Message")msg.Text="WindUI加载失败("..mR.."次重试)";msg.Parent=workspace;task.delay(4,function()msg:Destroy()end);return end
+    if ok and rv then WI=rv;LO=true else rC=rC+1;if rC<mR then task.wait(1.5)end end
+end
+if not LO then
+    local msg=Instance.new("Message")
+    msg.Text="WindUI加载失败("..mR.."次重试)"
+    msg.Parent=workspace
+    task.delay(4,function()msg:Destroy()end)
+    return
+end
 
 local P,U,W=game:GetService("Players"),game:GetService("UserInputService"),game:GetService("Workspace")
 local C,RS,VIM=game:GetService("CoreGui"),game:GetService("ReplicatedStorage"),game:GetService("VirtualInputManager")
 local LP=nil;for i=1,50 do LP=P.LocalPlayer;if LP then break end;task.wait(0.1)end
-local IM=U.TouchEnabled and not U.KeyboardEnabled;if not IM then pcall(function()IM=U.TouchEnabled and not U.MouseEnabled end)end
+local IM=false;pcall(function()IM=U.TouchEnabled and not U.KeyboardEnabled end)
+if not IM then pcall(function()IM=U.TouchEnabled and not U.MouseEnabled end)end
 
 local PCSet={}
 local function upS()for k in pairs(PCSet)do PCSet[k]=nil end;for _,p in ipairs(P:GetPlayers())do local c=p.Character;if c then PCSet[c]=true end end end
-upS();P.PlayerAdded:Connect(upS);P.PlayerRemoving:Connect(upS)
+upS()
+P.PlayerAdded:Connect(upS);P.PlayerRemoving:Connect(upS)
 P.PlayerAdded:Connect(function(pl)pl.CharacterAdded:Connect(function(c)PCSet[c]=true end);pl.CharacterRemoving:Connect(function(c)PCSet[c]=nil end)end)
 for _,pl in ipairs(P:GetPlayers())do pl.CharacterAdded:Connect(function(c)PCSet[c]=true end);pl.CharacterRemoving:Connect(function(c)PCSet[c]=nil end)end
 
 local function cln()
-    local wc=0;for _,g in ipairs(C:GetChildren())do if g:IsA("ScreenGui")then local n=g.Name
-        if n:find("WindUI")then wc=wc+1;if wc>1 then pcall(function()g:Destroy()end)end
-        elseif n=="A"or n:find("AirportESP")or n:find("ESP_Particles")then pcall(function()g:Destroy()end)end end end
+    local wc=0
+    for _,g in ipairs(C:GetChildren())do
+        if g:IsA("ScreenGui")then
+            local n=g.Name
+            if n:find("WindUI")then wc=wc+1;if wc>1 then pcall(function()g:Destroy()end)end
+            elseif n=="A"or n:find("AirportESP")or n:find("ESP_Particles")then pcall(function()g:Destroy()end)end
+        end
+    end
 end
 cln()
 
@@ -29,29 +46,43 @@ local function rf(i,n)
 end
 
 local function sp(m)
-    if not m then return nil end;local pr=m:FindFirstChild("Properties");if not pr then return nil end
-    local sv=rf(pr,"StatusVariables");if sv then local h=rf(sv,"Hostile");if h and h:IsA("BoolValue")and h.Value then return true end end
+    if not m then return nil end
+    local pr=m:FindFirstChild("Properties");if not pr then return nil end
+    local sv=rf(pr,"StatusVariables")
+    if sv then local h=rf(sv,"Hostile");if h and h:IsA("BoolValue")and h.Value then return true end end
     local rv=rf(pr,"RandomVariables")
-    if rv then local c=rf(rv,"ContrabandReal");if c and c:IsA("BoolValue")and c.Value then return true end
-        local f=rf(rv,"FakePassport");if f and f:IsA("BoolValue")and f.Value then return true end end
+    if rv then
+        local c=rf(rv,"ContrabandReal");if c and c:IsA("BoolValue")and c.Value then return true end
+        local f=rf(rv,"FakePassport");if f and f:IsA("BoolValue")and f.Value then return true end
+    end
     return nil
 end
 
 local function gnb(n)
-    if not n then return false end;local pr=n:FindFirstChild("Properties");if not pr then return false end
+    if not n then return false end
+    local pr=n:FindFirstChild("Properties");if not pr then return false end
     local rv=rf(pr,"RandomVariables")
-    if rv then local c=rf(rv,"ContrabandReal");if c and c:IsA("BoolValue")and c.Value then return true end
-        local f=rf(rv,"FakePassport");if f and f:IsA("BoolValue")and f.Value then return true end end
+    if rv then
+        local c=rf(rv,"ContrabandReal");if c and c:IsA("BoolValue")and c.Value then return true end
+        local f=rf(rv,"FakePassport");if f and f:IsA("BoolValue")and f.Value then return true end
+    end
     return false
 end
 
 local function cl(m)
-    if not m then return"Good"end;local nm=m.Name or"";local fp="";pcall(function()fp=m:GetFullName()end)
+    if not m then return"Good"end
+    local nm=m.Name or"";local fp="";pcall(function()fp=m:GetFullName()end)
     local hum=m:FindFirstChildOfClass("Humanoid")
-    if hum then for _,an in ipairs({"NPCType","Type","Faction","Team","Role"})do local v=nil;pcall(function()v=hum:GetAttribute(an)end)
-        if v then local vs=tostring(v):lower()
-            for _,g in ipairs({"agent","good","friendly","ally","police","guard","civilian","security"})do if vs:find(g,1,true)then return"Good"end end
-            for _,b in ipairs({"enemy","bad","hostile","terrorist","criminal"})do if vs:find(b,1,true)then return"Bad"end end end end end
+    if hum then
+        for _,an in ipairs({"NPCType","Type","Faction","Team","Role"})do
+            local v=nil;pcall(function()v=hum:GetAttribute(an)end)
+            if v then
+                local vs=tostring(v):lower()
+                for _,g in ipairs({"agent","good","friendly","ally","police","guard","civilian","security"})do if vs:find(g,1,true)then return"Good"end end
+                for _,b in ipairs({"enemy","bad","hostile","terrorist","criminal"})do if vs:find(b,1,true)then return"Bad"end end
+            end
+        end
+    end
     local bad=sp(m);if bad~=nil then return bad and"Bad"or"Good"end
     local nl=nm:lower()
     for _,kw in ipairs({"警察","保安","警卫","police","guard","agent","officer","prisoner","store","npcstore","市民","商人"})do if nl:find(kw:lower(),1,true)then return"Good"end end
@@ -63,7 +94,8 @@ local function cl(m)
 end
 
 local function cll(lug)
-    if not lug then return"Suspicious"end;local pr=lug:FindFirstChild("Properties")
+    if not lug then return"Suspicious"end
+    local pr=lug:FindFirstChild("Properties")
     if pr then local cb=rf(pr,"Contraband");if cb and cb:IsA("BoolValue")then return cb.Value and"Dangerous"or"Safe"end end
     return"Suspicious"
 end
@@ -79,17 +111,20 @@ local JAIL_POS=nil
 local function fj()
     if JAIL_POS then return JAIL_POS end
     local je=W:FindFirstChild("WorkspaceScriptable")and W.WorkspaceScriptable:FindFirstChild("JailEssentials")
-    if je then local jd=je:FindFirstChild("JailDetect");if jd and jd:IsA("BasePart")then JAIL_POS=jd.Position;return JAIL_POS end
-        for _,c in ipairs(je:GetChildren())do if c:IsA("BasePart")then JAIL_POS=c.Position;return JAIL_POS end end end
+    if je then
+        local jd=je:FindFirstChild("JailDetect");if jd and jd:IsA("BasePart")then JAIL_POS=jd.Position;return JAIL_POS end
+        for _,c in ipairs(je:GetChildren())do if c:IsA("BasePart")then JAIL_POS=c.Position;return JAIL_POS end end
+    end
     return nil
 end
 
 local S={Enabled=false,BadOnly=false,ShowDist=false,ShowHP=false,Luggage=false,AutoWork=false,WorkMode="Arrest",WorkRange=20,MaxRange=500,Theme="Dark",Particles=true,PColor=Color3.fromRGB(80,170,255)}
 local H={};local LG={};local GC,BC,LC,LDC,LSC,SC=0,0,0,0,0,0
-local WN,PC=nil,nil;local CT={};local KB={};local TE={};local ATE={};local PS={};local PR,PP=false,false;local CF="default"
+local WN,PC=nil,nil;local CT={};local KB={WK="RightShift"};local TE={};local ATE={};local PS={};local PR,PP=false,false;local CF="default"
 
 local function mHL(o,c)
-    if not o then return end;local hl=Instance.new("Highlight")
+    if not o then return end
+    local hl=Instance.new("Highlight")
     hl.FillColor=c;hl.FillTransparency=0.25;hl.OutlineColor=Color3.fromRGB(255,255,255);hl.OutlineTransparency=0
     hl.DepthMode=Enum.HighlightDepthMode.AlwaysOnTop;hl.Adornee=o;hl.Parent=o;return hl
 end
@@ -97,13 +132,18 @@ end
 local function mNESP(c,nt)
     if not c or not c.Parent then return end;if PCSet[c]then return end;if H[c]then return end
     local hrp=c:FindFirstChild("HumanoidRootPart")or c:FindFirstChild("Torso")or c:FindFirstChildOfClass("Part");if not hrp then return end
-    if LP and LP.Character then local mp=LP.Character:FindFirstChild("HumanoidRootPart")or LP.Character:FindFirstChild("Torso")
-        if mp and(hrp.Position-mp.Position).Magnitude>S.MaxRange then return end end
-    local col=nt=="Good"and Color3.fromRGB(0,255,80)or Color3.fromRGB(255,40,40);local tag=nt=="Good"and"👮 好人"or"💀 坏人"
+    if LP and LP.Character then
+        local mp=LP.Character:FindFirstChild("HumanoidRootPart")or LP.Character:FindFirstChild("Torso")
+        if mp and(hrp.Position-mp.Position).Magnitude>S.MaxRange then return end
+    end
+    local col=nt=="Good"and Color3.fromRGB(0,255,80)or Color3.fromRGB(255,40,40)
+    local tag=nt=="Good"and"👮 好人"or"💀 坏人"
     local hl=mHL(c,col);local head=c:FindFirstChild("Head")or hrp
     local bb=Instance.new("BillboardGui");bb.Adornee=head;bb.Size=UDim2.new(0,220,0,56);bb.StudsOffset=Vector3.new(0,5,0);bb.AlwaysOnTop=true;bb.MaxDistance=S.MaxRange;bb.Enabled=S.Enabled and(not S.BadOnly or nt=="Bad");bb.Parent=C
-    local ob=Instance.new("Frame");ob.Size=UDim2.new(1,4,1,4);ob.Position=UDim2.new(0,-2,0,-2);ob.BackgroundColor3=Color3.fromRGB(255,255,255);ob.BackgroundTransparency=0.85;ob.BorderSizePixel=0;ob.Parent=bb;Instance.new("UICorner",ob).CornerRadius=UDim.new(0,8)
-    local bg=Instance.new("Frame");bg.Size=UDim2.new(1,0,1,0);bg.BackgroundColor3=Color3.fromRGB(0,0,0);bg.BackgroundTransparency=0.55;bg.BorderSizePixel=0;bg.Parent=bb;Instance.new("UICorner",bg).CornerRadius=UDim.new(0,8)
+    local ob=Instance.new("Frame");ob.Size=UDim2.new(1,4,1,4);ob.Position=UDim2.new(0,-2,0,-2);ob.BackgroundColor3=Color3.fromRGB(255,255,255);ob.BackgroundTransparency=0.85;ob.BorderSizePixel=0;ob.Parent=bb
+    Instance.new("UICorner",ob).CornerRadius=UDim.new(0,8)
+    local bg=Instance.new("Frame");bg.Size=UDim2.new(1,0,1,0);bg.BackgroundColor3=Color3.fromRGB(0,0,0);bg.BackgroundTransparency=0.55;bg.BorderSizePixel=0;bg.Parent=bb
+    Instance.new("UICorner",bg).CornerRadius=UDim.new(0,8)
     local lb=Instance.new("TextLabel");lb.Size=UDim2.new(1,-6,1,0);lb.Position=UDim2.new(0,3,0,0);lb.BackgroundTransparency=1;lb.TextColor3=col;lb.Font=Enum.Font.SourceSansBold;lb.TextScaled=true;lb.Text=tag;lb.BorderSizePixel=0;lb.Parent=bg
     H[c]={bb=bb,lb=lb,hrp=hrp,nt=nt,tag=tag,hl=hl};SC=SC+1;if nt=="Good"then GC=GC+1 else BC=BC+1 end
 end
@@ -111,14 +151,22 @@ end
 local function mLESP(lug,lt)
     if not lug or not lug.Parent or lug.Name~="OpenableLuggage"then return end
     local pp=glp(lug);if not pp then return end;local key=pp
-    if LG[key]then if LG[key].nt~=lt then LG[key].nt=lt;LG[key].tag=lt=="Dangerous"and"💣 危险行李"or(lt=="Safe"and"🧳 安全行李"or"❓ 可疑行李")
-        if LG[key].lb then local col=lt=="Dangerous"and Color3.fromRGB(255,40,40)or(lt=="Safe"and Color3.fromRGB(0,255,80)or Color3.fromRGB(255,180,40))
-            LG[key].lb.TextColor3=col;LG[key].lb.Text=LG[key].tag end;if LG[key].hl then LG[key].hl.FillColor=col end end;return end
+    if LG[key]then
+        if LG[key].nt~=lt then
+            LG[key].nt=lt;LG[key].tag=lt=="Dangerous"and"💣 危险行李"or(lt=="Safe"and"🧳 安全行李"or"❓ 可疑行李")
+            if LG[key].lb then local col=lt=="Dangerous"and Color3.fromRGB(255,40,40)or(lt=="Safe"and Color3.fromRGB(0,255,80)or Color3.fromRGB(255,180,40))
+                LG[key].lb.TextColor3=col;LG[key].lb.Text=LG[key].tag end
+            if LG[key].hl then LG[key].hl.FillColor=col end
+        end
+        return
+    end
     local col=lt=="Dangerous"and Color3.fromRGB(255,40,40)or(lt=="Safe"and Color3.fromRGB(0,255,80)or Color3.fromRGB(255,180,40))
     local tag=lt=="Dangerous"and"💣 危险行李"or(lt=="Safe"and"🧳 安全行李"or"❓ 可疑行李")
     local hl=mHL(lug,col);local bb=Instance.new("BillboardGui");bb.Adornee=pp;bb.Size=UDim2.new(0,220,0,56);bb.StudsOffset=Vector3.new(0,3,0);bb.AlwaysOnTop=true;bb.MaxDistance=S.MaxRange;bb.Enabled=S.Luggage;bb.Parent=C
-    local ob=Instance.new("Frame");ob.Size=UDim2.new(1,4,1,4);ob.Position=UDim2.new(0,-2,0,-2);ob.BackgroundColor3=Color3.fromRGB(255,255,255);ob.BackgroundTransparency=0.85;ob.BorderSizePixel=0;ob.Parent=bb;Instance.new("UICorner",ob).CornerRadius=UDim.new(0,8)
-    local bg=Instance.new("Frame");bg.Size=UDim2.new(1,0,1,0);bg.BackgroundColor3=Color3.fromRGB(0,0,0);bg.BackgroundTransparency=0.55;bg.BorderSizePixel=0;bg.Parent=bb;Instance.new("UICorner",bg).CornerRadius=UDim.new(0,8)
+    local ob=Instance.new("Frame");ob.Size=UDim2.new(1,4,1,4);ob.Position=UDim2.new(0,-2,0,-2);ob.BackgroundColor3=Color3.fromRGB(255,255,255);ob.BackgroundTransparency=0.85;ob.BorderSizePixel=0;ob.Parent=bb
+    Instance.new("UICorner",ob).CornerRadius=UDim.new(0,8)
+    local bg=Instance.new("Frame");bg.Size=UDim2.new(1,0,1,0);bg.BackgroundColor3=Color3.fromRGB(0,0,0);bg.BackgroundTransparency=0.55;bg.BorderSizePixel=0;bg.Parent=bb
+    Instance.new("UICorner",bg).CornerRadius=UDim.new(0,8)
     local lb=Instance.new("TextLabel");lb.Size=UDim2.new(1,-6,1,0);lb.Position=UDim2.new(0,3,0,0);lb.BackgroundTransparency=1;lb.TextColor3=col;lb.Font=Enum.Font.SourceSansBold;lb.TextScaled=true;lb.Text=tag;lb.BorderSizePixel=0;lb.Parent=bg
     LG[key]={bb=bb,lb=lb,pp=pp,nt=lt,tag=tag,hl=hl};LC=LC+1;if lt=="Dangerous"then LDC=LDC+1 elseif lt=="Safe"then LSC=LSC+1 end
 end
@@ -278,12 +326,13 @@ local function mW()
         Title="机场安全透视",Author="b站英吉利超入_",Icon="solar:shield-warning-bold",
         Size=UDim2.fromOffset(750,520),ToggleKey=Enum.KeyCode.RightShift,Folder="airport-esp",Acrylic=true,Transparent=true,Resizable=false,
         SideBarWidth=180,ScrollBarEnabled=true,HideSearchBar=true,
-        OpenButton={Title="打开透视",Scale=0.5,Enabled=true,OnlyMobile=IM,Draggable=true,
-            Color=ColorSequence.new(Color3.fromRGB(0,255,100),Color3.fromRGB(0,200,255)),CornerRadius=UDim.new(1,0),StrokeThickness=3},
         OnClose=function()S.Enabled=false;S.Luggage=false;S.AutoWork=false;WB={}
             if CT.ESP then CT.ESP:Set(false)end;if CT.LT then CT.LT:Set(false)end;if CT.AW then CT.AW:Set(false)end;rESP();kP()end,
         OnOpen=function()if S.Particles then task.spawn(function()task.wait(0.5);mkP()end)end end})end)
     if not ok2 or not w then return end;WN=w
+
+    task.spawn(function()task.wait(0.5);pcall(function()WN:SetToggleKey(Enum.KeyCode.RightShift)end)end)
+
     local mt=WN:Tab({Title="主控面板",Icon="solar:slider-vertical-bold"})
     CT.ESP=mt:Toggle({Flag="ESP",Title="透视开关",Value=false,Callback=function(v)S.Enabled=v;rESP();if v then task.spawn(doScan)end end})
     CT.BO=mt:Toggle({Flag="BadOnly",Title="仅显示坏人",Value=false,Callback=function(v)S.BadOnly=v;rESP()end});mt:Divider()
@@ -292,24 +341,29 @@ local function mW()
     mt:Divider();CT.DT=mt:Toggle({Flag="Dist",Title="显示距离",Value=false,Callback=function(v)S.ShowDist=v end})
     CT.HT=mt:Toggle({Flag="Health",Title="显示血量",Value=false,Callback=function(v)S.ShowHP=v end})
     mt:Divider();CT.RS=mt:Slider({Flag="Range",Title="最大探测距离",Step=50,Value={Min=50,Max=1000,Default=500},Width=200,IsTextbox=true,Callback=function(v)S.MaxRange=v end})
+
     local ft=WN:Tab({Title="功能设置",Icon="solar:settings-bold"})
     CT.EK=ft:Keybind({Flag="ESPK",Title="透视开关快捷键",Value="",Callback=function(k)KB.ESP=k end})
     CT.BK=ft:Keybind({Flag="BadK",Title="仅坏人快捷键",Value="",Callback=function(k)KB.BadOnly=k end})
+
     local awt=WN:Tab({Title="自动工作",Icon="solar:police-car-bold"})
     CT.AW=awt:Toggle({Flag="AutoWork",Title="自动模式",Value=false,Callback=function(v)S.AutoWork=v end});awt:Divider()
     CT.WM=awt:Dropdown({Flag="WorkMode",Title="工作模式",Values={"Arrest","Kill","Release","Auto"},Value="Arrest",Callback=function(v)S.WorkMode=v end})
     CT.WR=awt:Slider({Flag="WorkRange",Title="工作范围(米)",Step=5,Value={Min=5,Max=50,Default=20},Width=180,IsTextbox=true,Callback=function(v)S.WorkRange=v end})
     awt:Divider();ATE.ST=awt:Input({Flag="WS",Title="状态",Value="[等待启动]",Locked=true,Icon="solar:info-circle-bold"})
     awt:Space();awt:Paragraph({Title="📋 模式说明",Desc="Arrest=逮捕犯人,Kill=击杀,Release=放行好人,Auto=逮捕+反抗则击杀"})
+
     local ut=WN:Tab({Title="UI设置",Icon="solar:monitor-bold"})
-    CT.WK=ut:Keybind({Flag="WinK",Title="窗口开关",Value="RightShift",Callback=function(k)KB.Win=k;if WN then pcall(function()WN:SetToggleKey(Enum.KeyCode[k])end)end end});ut:Divider()
+    CT.WK=ut:Keybind({Flag="WinK",Title="窗口开关",Value="RightShift",Callback=function(k)KB.WK=k;if WN then pcall(function()local kc=Enum.KeyCode[k];if not kc then kc=Enum.KeyCode.RightShift end;WN:SetToggleKey(kc)end)end end});ut:Divider()
     CT.PT=ut:Toggle({Flag="PT",Title="粒子背景",Value=true,Callback=function(v)S.Particles=v;if v then task.spawn(mkP)else kP()end end});ut:Divider()
     CT.AT=ut:Toggle({Flag="AT",Title="毛玻璃",Value=true,Callback=function(v)pcall(function()WI:ToggleAcrylic(v)end)end})
     CT.TT=ut:Toggle({Flag="TT",Title="透明背景",Value=true,Callback=function(v)pcall(function()if WN then pcall(function()WN:ToggleTransparency(v)end)end end)end});ut:Divider()
     local allT={};pcall(function()allT=WI:GetThemes()end);local tn={};for n,_ in pairs(allT)do table.insert(tn,n)end;table.sort(tn)
     CT.TD=ut:Dropdown({Flag="TD",Title="选择主题",Values=tn,Value="Dark",Callback=function(sl)if sl and type(sl)=="string"then S.Theme=sl;WI:SetTheme(sl);S.PColor=gtc(sl);uPC()end end})
+
     local st=WN:Tab({Title="信息统计",Icon="solar:chart-bold"})
     TE.GP=st:Paragraph({Title="🟢 好人: 0"});TE.BP=st:Paragraph({Title="🔴 坏人: 0"});TE.LP=st:Paragraph({Title="🧳 行李: 0"});TE.SP=st:Paragraph({Title="📊 总计: 0"})
+
     local ct=WN:Tab({Title="配置管理",Icon="solar:diskette-bold"})
     local cni=ct:Input({Flag="CN",Title="配置名称",Value="default",Icon="solar:file-text-bold",Callback=function(v)CF=v end});ct:Space()
     local CM=WN.ConfigManager;local AC={};pcall(function()AC=CM:AllConfigs()end)
@@ -319,19 +373,22 @@ local function mW()
     ct:Button({Title="📂 加载",Icon="solar:refresh-circle-bold",Justify="Center",Color=Color3.fromHex("#10C550"),Callback=function()if not CM then return end;local c=CM:CreateConfig(CF,false);if c and c:Load()then WI:Notify({Title="✅ 已加载",Content="配置 '"..CF.."'",Duration=3,Icon="solar:refresh-circle-bold"})end end});ct:Space()
     ct:Button({Title="🗑️ 删除",Icon="solar:trash-bin-trash-bold",Justify="Center",Color=Color3.fromHex("#ff3040"),Callback=function()if not CM then return end;local c=CM:Config(CF);if c and c:Delete()then WI:Notify({Title="🗑️ 已删除",Content="配置 '"..CF.."'",Duration=3,Icon="solar:trash-bin-trash-bold"});ACD:Refresh(CM:AllConfigs())end end})
     task.spawn(function()task.wait(1);pcall(function()CM:CreateConfig("default",true)end);task.spawn(mkP)end)
+
     local at=WN:Tab({Title="关于",Icon="solar:info-square-bold"})
-    at:Paragraph({Title="机场安全透视 v16.1",Desc="WindUI加载放最前面+去除多行注释避免编码问题"})
+    at:Paragraph({Title="机场安全透视 v16.3",Desc="移除OpenButton防ToggleKey冲突"})
     at:Divider();at:Paragraph({Title="👤 作者",Desc="b站英吉利超入_"});at:Divider()
     at:Paragraph({Title="💡 使用",Desc=IM and"手机:点击悬浮按钮"or"PC:RightShift打开菜单"})
+
     U.InputBegan:Connect(function(i,g)if g or i.UserInputType~=Enum.UserInputType.Keyboard then return end;local k=i.KeyCode.Name
         if KB.ESP and KB.ESP~=""and k==KB.ESP then S.Enabled=not S.Enabled;if CT.ESP then CT.ESP:Set(S.Enabled)end;rESP();if S.Enabled then task.spawn(doScan)end end
         if KB.BadOnly and KB.BadOnly~=""and k==KB.BadOnly then S.BadOnly=not S.BadOnly;if CT.BO then CT.BO:Set(S.BadOnly)end;rESP()end end)
+
     local function mL()while true do task.wait(5);pcall(function()doScan();rESP();uS();if S.Luggage then rLBL()end;uS()end)end end
     task.spawn(mL);task.spawn(sAWL)
 end
 
 pcall(function()WI:SetTheme("Dark")end);S.PColor=gtc("Dark")
-WI:Popup({Title="机场安全透视 v16.1",Icon="solar:info-square-bold",
+WI:Popup({Title="机场安全透视 v16.3",Icon="solar:info-square-bold",
     Content="👁 NPC透视\n🔴🟢 红坏人/绿好人\n🧳 行李箱检测\n🚔 自动工作\n🌀 粒子背景\n⚠️ 功能默认关闭",
     Buttons={{Title="取消",Callback=function()end,Variant="Tertiary"},
         {Title="确认加载",Icon="solar:arrow-right-bold",Callback=function()PP=true
